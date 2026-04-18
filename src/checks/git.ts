@@ -12,13 +12,13 @@ export class GitCheck {
   async run(): Promise<CheckResult> {
     try {
       // Get current branch
-      const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
+      const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 
       // Get recent commits
-      const recentCommits = execSync('git log --oneline -5', { encoding: 'utf8' }).trim();
+      const recentCommits = execSync('git log --oneline -5', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 
       // Get uncommitted changes count
-      const uncommitted = execSync('git status --porcelain', { encoding: 'utf8' }).trim();
+      const uncommitted = execSync('git status --porcelain', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
       const uncommittedCount = uncommitted.split('\n').filter(line => line.trim() !== '').length;
 
       // Get divergence from default branch (main, master, or trunk)
@@ -27,7 +27,7 @@ export class GitCheck {
         // Resolve the default branch: prefer remote HEAD, fall back to local branches
         let defaultBranch: string | undefined;
         try {
-          const remoteHead = execSync('git rev-parse --abbrev-ref HEAD@{upstream}', { encoding: 'utf8' }).trim();
+          const remoteHead = execSync('git rev-parse --abbrev-ref HEAD@{upstream}', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
           // e.g. 'origin/main' → extract 'main'
           defaultBranch = remoteHead.split('/').slice(1).join('/');
         } catch {
@@ -61,10 +61,10 @@ export class GitCheck {
             compareRef = defaultBranch;
           }
 
-          const compareCommit = execSync(`git rev-parse ${compareRef}`, { encoding: 'utf8' }).trim();
-          const currentCommit = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+          const compareCommit = execSync(`git rev-parse ${compareRef}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+          const currentCommit = execSync('git rev-parse HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
           const diff = execSync(`git rev-list --left-right --count ${compareCommit}...${currentCommit}`, {
-            encoding: 'utf8'
+            encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
           }).trim();
           const [behind, ahead] = diff.split('\t').map(Number);
           divergence = ahead > 0 ? `ahead by ${ahead}` : behind > 0 ? `behind by ${behind}` : 'up to date';
@@ -85,10 +85,26 @@ export class GitCheck {
         }
       };
     } catch (error) {
+      const errMsg = error instanceof Error ? error.message : 'Unknown error';
+      // Distinguish between "not a git repo" and actual failures
+      if (errMsg.includes('not a git repository')) {
+        return {
+          type: 'git',
+          status: 'warning',
+          message: 'Not a git repository'
+        };
+      }
+      if (errMsg.includes('ambiguous argument') && errMsg.includes('HEAD')) {
+        return {
+          type: 'git',
+          status: 'warning',
+          message: 'Git repository has no commits yet'
+        };
+      }
       return {
         type: 'git',
         status: 'error',
-        message: `Git check failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: `Git check failed: ${errMsg}`
       };
     }
   }

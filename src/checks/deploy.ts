@@ -41,10 +41,11 @@ export class DeployCheck {
       );
 
       if (!response.ok) {
+        const isAuthFailure = response.status === 401 || response.status === 403;
         return {
           type: 'deploy',
-          status: 'error',
-          message: `GitHub API error: ${response.statusText}`
+          status: isAuthFailure ? 'warning' : 'error',
+          message: isAuthFailure ? `GitHub auth failed: ${response.statusText}. Check your token.` : `GitHub API error: ${response.statusText}`
         };
       }
 

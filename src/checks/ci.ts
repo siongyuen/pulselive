@@ -41,10 +41,12 @@ export class CICheck {
       );
 
       if (!response.ok) {
+        // Auth failures are warnings (config issue, not project health issue)
+        const isAuthFailure = response.status === 401 || response.status === 403;
         return {
           type: 'ci',
-          status: 'error',
-          message: `GitHub API error: ${response.statusText}`
+          status: isAuthFailure ? 'warning' : 'error',
+          message: isAuthFailure ? `GitHub auth failed: ${response.statusText}. Check your token.` : `GitHub API error: ${response.statusText}`
         };
       }
 

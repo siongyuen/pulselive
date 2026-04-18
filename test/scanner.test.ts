@@ -118,7 +118,20 @@ describe('Scanner', () => {
     expect(result.status).toBe('success');
   });
 
-  it('should throw error for unknown check type', async () => {
-    await expect(scanner.runSingleCheck('unknown' as any)).rejects.toThrow('Unknown check type: unknown');
+  it('should return error result for unknown check type', async () => {
+    const result = await scanner.runSingleCheck('unknown' as any);
+    expect(result.type).toBe('unknown');
+    expect(result.status).toBe('error');
+    expect(result.message).toContain('Unknown check type');
+    expect(result.message).toContain('Valid types');
+  });
+
+  it('should return warning for disabled check type via runSingleCheck', async () => {
+    config.checks = { ci: false };
+    scanner = new Scanner(config);
+    const result = await scanner.runSingleCheck('ci');
+    expect(result.type).toBe('ci');
+    expect(result.status).toBe('warning');
+    expect(result.message).toContain('disabled');
   });
 });

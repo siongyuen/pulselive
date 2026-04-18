@@ -69,6 +69,24 @@ export class Scanner {
   }
 
   async runSingleCheck(checkType: string): Promise<CheckResult> {
+    const validTypes = ['ci', 'deploy', 'health', 'git', 'issues', 'deps'];
+    if (!validTypes.includes(checkType)) {
+      return {
+        type: checkType,
+        status: 'error',
+        message: `Unknown check type: ${checkType}. Valid types: ${validTypes.join(', ')}`
+      };
+    }
+
+    // Respect config enable/disable flags
+    if (this.config.checks?.[checkType as keyof typeof this.config.checks] === false) {
+      return {
+        type: checkType,
+        status: 'warning',
+        message: `${checkType} check is disabled in configuration`
+      };
+    }
+
     switch (checkType) {
       case 'ci':
         return new CICheck(this.config).run();
@@ -83,7 +101,8 @@ export class Scanner {
       case 'deps':
         return new DepsCheck(this.config).run();
       default:
-        throw new Error(`Unknown check type: ${checkType}`);
+        // Unreachable but TypeScript needs it
+        return { type: checkType, status: 'error', message: `Unknown check type: ${checkType}` };
     }
   }
 }
