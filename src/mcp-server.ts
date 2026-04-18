@@ -3,19 +3,48 @@ import { ConfigLoader } from './config';
 import { createServer, Server } from 'http';
 import { AddressInfo } from 'net';
 
+const VALID_TOOLS = [
+  'pulselive_check',
+  'pulselive_ci',
+  'pulselive_health',
+  'pulselive_deps',
+  'pulselive_summary'
+];
+
 export class MCPServer {
-  private scanner: Scanner;
+  private configLoader: ConfigLoader;
   private server: Server | null = null;
   private port: number;
 
-  constructor(private configLoader: ConfigLoader, port: number = 3000) {
+  constructor(configLoader: ConfigLoader, port: number = 3000) {
+    this.configLoader = configLoader;
     this.port = port;
-    const config = configLoader.autoDetect();
-    this.scanner = new Scanner(config);
+  }
+
+  private getScanner(dir?: string): Scanner {
+    // If a directory is specified, create a fresh ConfigLoader for that path
+    if (dir) {
+      const dirConfigLoader = new ConfigLoader(dir + '/.pulselive.yml');
+      const config = dirConfigLoader.autoDetect();
+      return new Scanner(config);
+    }
+    const config = this.configLoader.autoDetect();
+    return new Scanner(config);
   }
 
   start(): void {
     this.server = createServer(async (req, res) => {
+      // Set CORS headers for browser-based integrations
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
       try {
         const url = new URL(req.url || '/', `http://${req.headers.host}`);
         const tool = url.searchParams.get('tool');
@@ -26,7 +55,14 @@ export class MCPServer {
           return;
         }
 
-        const result = await this.handleToolRequest(tool);
+        if (!VALID_TOOLS.includes(tool)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Unknown tool: ${tool}. Valid tools: ${VALID_TOOLS.join(', ')}` }));
+          return;
+        }
+
+        const dir = url.searchParams.get('dir') || undefined;
+        const result = await this.handleToolRequest(tool, dir);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
       } catch (error) {
@@ -48,45 +84,47 @@ export class MCPServer {
     }
   }
 
-  private async handleToolRequest(tool: string): Promise<any> {
+  private async handleToolRequest(tool: string, dir?: string): Promise<any> {
+    const scanner = this.getScanner(dir);
+
     switch (tool) {
       case 'pulselive_check':
-        return this.pulseliveCheck();
+        return this.pulseliveCheck(scanner);
       case 'pulselive_ci':
-        return this.pulseliveCi();
+        return this.pulseliveCi(scanner);
       case 'pulselive_health':
-        return this.pulseliveHealth();
+        return this.pulseliveHealth(scanner);
       case 'pulselive_deps':
-        return this.pulseliveDeps();
+        return this.pulseliveDeps(scanner);
       case 'pulselive_summary':
-        return this.pulseliveSummary();
+        return this.pulseliveSummary(scanner);
       default:
         throw new Error(`Unknown tool: ${tool}`);
     }
   }
 
-  private async pulseliveCheck(): Promise<any> {
-    const results = await this.scanner.runAllChecks();
+  private async pulseliveCheck(scanner: Scanner): Promise<any> {
+    const results = await scanner.runAllChecks();
     return this.formatResults(results);
   }
 
-  private async pulseliveCi(): Promise<any> {
-    const result = await this.scanner.runSingleCheck('ci');
+  private async pulseliveCi(scanner: Scanner): Promise<any> {
+    const result = await scanner.runSingleCheck('ci');
     return this.formatSingleResult(result);
   }
 
-  private async pulseliveHealth(): Promise<any> {
-    const result = await this.scanner.runSingleCheck('health');
+  private async pulseliveHealth(scanner: Scanner): Promise<any> {
+    const result = await scanner.runSingleCheck('health');
     return this.formatSingleResult(result);
   }
 
-  private async pulseliveDeps(): Promise<any> {
-    const result = await this.scanner.runSingleCheck('deps');
+  private async pulseliveDeps(scanner: Scanner): Promise<any> {
+    const result = await scanner.runSingleCheck('deps');
     return this.formatSingleResult(result);
   }
 
-  private async pulseliveSummary(): Promise<any> {
-    const results = await this.scanner.runAllChecks();
+  private async pulseliveSummary(scanner: Scanner): Promise<any> {
+    const results = await scanner.runAllChecks();
     const criticalCount = results.filter(r => r.status === 'error').length;
     const warningCount = results.filter(r => r.status === 'warning').length;
     

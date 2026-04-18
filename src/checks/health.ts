@@ -21,45 +21,61 @@ export class HealthCheck {
         };
       }
 
-      const results: Array<{ name: string; status: number; responseTime: number }> = [];
+      const results: Array<{ name: string; status: number; responseTime: number; error?: string }> = [];
 
       for (const endpoint of endpoints) {
-        const startTime = Date.now();
-        const response = await fetch(endpoint.url, {
-          method: 'GET'
-          // Note: timeout is not directly supported by fetch API
-        });
-        const responseTime = Date.now() - startTime;
+        const timeout = endpoint.timeout || 5000; // Default 5 second timeout
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeout);
+          
+          const startTime = Date.now();
+          const response = await fetch(endpoint.url, {
+            method: 'GET',
+            signal: controller.signal as AbortSignal
+          });
+          const responseTime = Date.now() - startTime;
+          clearTimeout(timeoutId);
 
-        results.push({
-          name: endpoint.name,
-          status: response.status,
-          responseTime
-        });
+          results.push({
+            name: endpoint.name,
+            status: response.status,
+            responseTime
+          });
+        } catch (error: any) {
+          const responseTime = Date.now() - (Date.now()); // Will be overridden
+          const isTimeout = error.name === 'AbortError';
+          results.push({
+            name: endpoint.name,
+            status: 0,
+            responseTime: timeout,
+            error: isTimeout ? `Timeout after ${timeout}ms` : (error.message || 'Connection failed')
+          });
+        }
       }
 
-      const allSuccess = results.every(r => r.status >= 200 && r.status < 300);
-      const hasErrors = results.some(r => r.status >= 500);
+      const healthyResults = results.filter(r => r.status >= 200 && r.status < 300);
+      const failedResults = results.filter(r => r.error || r.status >= 500);
 
-      if (allSuccess) {
+      if (healthyResults.length === results.length) {
         return {
           type: 'health',
           status: 'success',
           message: `All endpoints healthy (${results.length} checked)`,
           details: results
         };
-      } else if (hasErrors) {
+      } else if (failedResults.length > 0) {
         return {
           type: 'health',
           status: 'error',
-          message: `${results.filter(r => r.status >= 500).length} endpoints failed`,
+          message: `${failedResults.length} endpoint(s) failed`,
           details: results
         };
       } else {
         return {
           type: 'health',
           status: 'warning',
-          message: `Some endpoints have issues (${results.filter(r => r.status >= 400).length} warnings)`,
+          message: `Some endpoints have issues`,
           details: results
         };
       }

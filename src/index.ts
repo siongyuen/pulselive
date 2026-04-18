@@ -19,7 +19,8 @@ program
   .command('check')
   .description('Run all checks and show report')
   .option('--json', 'Output results as JSON')
-  .option('--ci', 'Exit with code 1 if critical issues found')
+  .option('--fail-on-error', 'Exit with code 1 if critical issues found')
+  .option('--ci', 'Deprecated: use --fail-on-error instead')
   .option('--type <type>', 'Run only specific check type (ci, health, deps, git, issues, deploy)')
   .action(async (options) => {
     const configLoader = new ConfigLoader();
@@ -41,7 +42,7 @@ program
       console.log(reporter.format(results));
     }
 
-    if (options.ci) {
+    if (options.failOnError || options.ci) {
       const hasCritical = results.some((r: any) => r.status === 'error');
       if (hasCritical) {
         process.exit(1);
@@ -53,20 +54,23 @@ program
   .command('init')
   .description('Generate .pulselive.yml configuration file')
   .action(() => {
+    const configLoader = new ConfigLoader();
+    const detected = configLoader.autoDetect();
+
     const defaultConfig = {
       github: {
-        repo: '',
-        token: ''
+        repo: detected.github?.repo || '',
+        token: detected.github?.token || ''
       },
       health: {
-        endpoints: [
+        endpoints: detected.health?.endpoints || [
           {
             name: 'API',
             url: 'http://localhost:3000/health'
           }
         ]
       },
-      checks: {
+      checks: detected.checks || {
         ci: true,
         deps: true,
         git: true,
@@ -78,6 +82,9 @@ program
 
     writeFileSync('.pulselive.yml', yaml.stringify(defaultConfig));
     console.log('Generated .pulselive.yml configuration file');
+    if (detected.github?.repo) {
+      console.log(`  Auto-detected GitHub repo: ${detected.github.repo}`);
+    }
   });
 
 program

@@ -90,6 +90,17 @@ export class ConfigLoader {
       }
     }
 
+    // Fall back to GITHUB_TOKEN / GH_TOKEN env var if not set in config
+    if (!detectedConfig.github?.token) {
+      const envToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      if (envToken) {
+        detectedConfig.github = {
+          ...detectedConfig.github,
+          token: envToken
+        };
+      }
+    }
+
     return detectedConfig;
   }
 }

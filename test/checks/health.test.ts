@@ -63,7 +63,7 @@ describe('HealthCheck', () => {
     
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
-    expect(result.message).toContain('1 endpoints failed');
+    expect(result.message).toContain('endpoint(s) failed');
   });
 
   it('should handle mixed endpoint statuses', async () => {
@@ -88,5 +88,22 @@ describe('HealthCheck', () => {
     expect(result.type).toBe('health');
     expect(result.status).toBe('warning');
     expect(result.message).toContain('Some endpoints have issues');
+  });
+
+  it('should handle connection failures gracefully', async () => {
+    config.health = {
+      endpoints: [
+        { name: 'Down', url: 'http://localhost:9999/health', timeout: 1000 }
+      ]
+    };
+    healthCheck = new HealthCheck(config);
+    
+    (fetch as any).mockRejectedValue(new Error('ECONNREFUSED'));
+    
+    const result = await healthCheck.run();
+    
+    expect(result.type).toBe('health');
+    expect(result.status).toBe('error');
+    expect(result.message).toContain('failed');
   });
 });

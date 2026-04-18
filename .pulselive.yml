@@ -1,0 +1,10 @@
+github:
+  repo: siongyuen/pulselive
+  token: ""
+health:
+  endpoints:
+    - name: API
+      url: http://localhost:3000/health
+checks:
+  deps: true
+  git: true
