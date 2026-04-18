@@ -70,14 +70,14 @@ export class MCPServer {
       throw new Error('Directory must be an absolute path');
     }
     
-    // Additional security: ensure the resolved path doesn't escape intended directory structure
-    // This prevents creative path manipulation attempts
-    const processCwd = process.cwd();
-    if (resolved.startsWith(processCwd)) {
-      return resolved;
-    } else {
-      throw new Error('Directory path escapes allowed directory structure');
+    // Safe Root Boundary: Ensure the resolved path stays within the project root
+    // This prevents absolute paths like /etc/passwd from being accessed
+    const projectRoot = process.cwd();
+    if (!resolved.startsWith(projectRoot + '/') && resolved !== projectRoot) {
+      throw new Error(`Directory path escapes project root boundary: ${projectRoot}`);
     }
+    
+    return resolved;
   }
 
   private getRequiredParamsForTool(tool: string): string[] {

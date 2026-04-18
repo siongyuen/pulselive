@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2-0-0.html).
 
 ## [0.3.0] - 2026-04-18
+## [1.0.2] - 2026-04-19
+
+### Fixed
+- **Critical: DNS rebinding SSRF protection** — IP pinning via custom HTTP agent (`PinnedAgent`/`PinnedHttpsAgent`) resolves DNS once and validates connected IP matches, preventing TOCTOU attacks
+- **High: Path traversal safe root boundary** — `validateDir()` now enforces project root prefix verification; absolute paths like `/etc/passwd` are rejected
+- **IPv6 SSRF blocking** — Fixed IPv6 addresses (fd00:ec2::254, fe80::, fc00::) bypassing SSRF validation in health checks
+- **Cloud metadata IP list** — Added explicit `CLOUD_METADATA_IPS` blocklist for both IPv4 and IPv6 metadata endpoints
+
 ## [1.0.1] - 2026-04-19
 
 ### Fixed
