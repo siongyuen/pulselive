@@ -138,4 +138,58 @@ export class Scanner {
     result.duration = Date.now() - startTime;
     return result;
   }
+
+  /**
+   * Quick triage — runs fast checks only, skips deps and coverage.
+   * Returns in ~1-2s instead of ~8-12s for the full check.
+   * Adds placeholder entries for skipped checks so agents know what was omitted.
+   */
+  async runQuickChecks(): Promise<CheckResult[]> {
+    const results: CheckResult[] = [];
+
+    const checks: Array<{ type: string; enabled: boolean; run: () => Promise<CheckResult> }> = [
+      { type: 'ci', enabled: this.config.checks?.ci !== false, run: () => withRetry(() => new CICheck(this.config).run()) },
+      { type: 'deploy', enabled: this.config.checks?.deploy !== false, run: () => withRetry(() => new DeployCheck(this.config).run()) },
+      { type: 'health', enabled: this.config.checks?.health !== false, run: () => new HealthCheck(this.config).run() },
+      { type: 'git', enabled: this.config.checks?.git !== false, run: () => new GitCheck(this.config).run() },
+      { type: 'issues', enabled: this.config.checks?.issues !== false, run: () => withRetry(() => new IssuesCheck(this.config).run()) },
+      { type: 'prs', enabled: this.config.checks?.prs !== false, run: () => withRetry(() => new PRsCheck(this.config).run()) },
+    ];
+
+    for (const check of checks) {
+      if (!check.enabled) continue;
+      const startTime = Date.now();
+      try {
+        const result = await check.run();
+        result.duration = Date.now() - startTime;
+        results.push(result);
+      } catch (error) {
+        results.push({
+          type: check.type,
+          status: 'error',
+          message: 'Check failed after retries',
+          duration: Date.now() - startTime
+        });
+      }
+    }
+
+    // Add skipped check placeholders so agents know what was omitted
+    const skipped: Array<{ type: string; enabled: boolean }> = [
+      { type: 'deps', enabled: this.config.checks?.deps !== false },
+      { type: 'coverage', enabled: this.config.checks?.coverage?.enabled !== false },
+    ];
+
+    for (const skip of skipped) {
+      if (skip.enabled) {
+        results.push({
+          type: skip.type,
+          status: 'warning',
+          message: `${skip.type} check skipped in quick mode — run full check for details`,
+          duration: 0
+        });
+      }
+    }
+
+    return results;
+  }
 }

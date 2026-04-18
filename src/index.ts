@@ -31,6 +31,7 @@ program
   .option('--ci', 'Deprecated: use --fail-on-error instead')
   .option('--compare', 'Compare current run with previous run')
   .option('--include-trends', 'Include trend analysis in JSON output')
+  .option('--quick', 'Quick triage — skip deps and coverage for ~2s response')
   .action(async (options) => {
     const startTime = Date.now();
     const configLoader = new ConfigLoader();
@@ -38,7 +39,7 @@ program
     const scanner = new Scanner(config);
     const reporter = new Reporter(!options.json);
 
-    const results: CheckResult[] = await scanner.runAllChecks();
+    const results: CheckResult[] = options.quick ? await scanner.runQuickChecks() : await scanner.runAllChecks();
     const totalDuration = Date.now() - startTime;
 
     if (options.json) {
@@ -46,6 +47,7 @@ program
         version: VERSION,
         timestamp: new Date().toISOString(),
         duration: totalDuration,
+        quick: !!options.quick,
         results
       };
       if (options.includeTrends) {
@@ -92,6 +94,36 @@ program
         process.exit(1);
       }
     }
+  });
+
+program
+  .command('quick')
+  .description('Quick triage — skip deps/coverage for ~2s response')
+  .option('--json', 'Output results as JSON')
+  .action(async (options) => {
+    const startTime = Date.now();
+    const configLoader = new ConfigLoader();
+    const config = configLoader.autoDetect();
+    const scanner = new Scanner(config);
+    const reporter = new Reporter(!options.json);
+
+    const results: CheckResult[] = await scanner.runQuickChecks();
+    const totalDuration = Date.now() - startTime;
+
+    if (options.json) {
+      console.log(JSON.stringify({
+        version: VERSION,
+        timestamp: new Date().toISOString(),
+        quick: true,
+        duration: totalDuration,
+        results
+      }, null, 2));
+    } else {
+      console.log(reporter.format(results));
+      console.log(`\n⚡ Quick mode — deps and coverage skipped (${totalDuration}ms)`);
+    }
+
+    process.exit(0);
   });
 
 program

@@ -43,7 +43,7 @@ interface JSONRPCResponse {
 const TOOLS = [
   {
     name: 'pulselive_check',
-    description: 'Run all health checks (CI, deploy, health, git, issues, PRs, coverage, deps) and return a structured report with severity, confidence, and actionable recommendations. Optionally include trend analysis.',
+    description: 'Run all health checks (CI, deploy, health, git, issues, PRs, coverage, deps) and return a structured report with severity, confidence, and actionable recommendations. Takes ~8-12 seconds due to npm audit. Use pulselive_quick for fast triage (~1-2s).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -55,7 +55,22 @@ const TOOLS = [
           type: 'boolean',
           description: 'Include trend analysis in the response. Defaults to false.'
         }
-      }
+      },
+      estimated_duration_ms: 10000
+    }
+  },
+  {
+    name: 'pulselive_quick',
+    description: 'Fast triage — runs CI, deploy, health, git, issues, and PRs checks only (skips deps and coverage for speed). Returns in ~1-2 seconds instead of ~8-12. Use this for quick triage, then pulselive_check for full results if needed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dir: {
+          type: 'string',
+          description: 'Absolute path to the project directory. Defaults to cwd.'
+        }
+      },
+      estimated_duration_ms: 2000
     }
   },
   {

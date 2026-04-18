@@ -9,6 +9,7 @@ import { VERSION } from './version';
 
 const VALID_TOOLS = [
   'pulselive_check',
+  'pulselive_quick',
   'pulselive_ci',
   'pulselive_health',
   'pulselive_deps',
@@ -134,6 +135,8 @@ export class MCPServer {
     switch (tool) {
       case 'pulselive_check':
         return this.pulseliveCheck(scanner, history, trendAnalyzer, params?.includeTrends);
+      case 'pulselive_quick':
+        return this.pulseliveQuick(scanner, history, trendAnalyzer);
       case 'pulselive_ci':
         return this.pulseliveSingle(scanner, 'ci', history, trendAnalyzer);
       case 'pulselive_health':
@@ -174,6 +177,47 @@ export class MCPServer {
     };
 
     if (includeTrends && history.length > 0) {
+      const checkTypes = new Set<string>();
+      history.forEach(e => e.results.forEach(r => checkTypes.add(r.type)));
+      results.forEach(r => checkTypes.add(r.type));
+      const trends: any = {};
+      for (const ct of checkTypes) {
+        trends[ct] = trendAnalyzer.analyze(ct, history);
+      }
+      response.trends = trends;
+      response.anomalies = trendAnalyzer.detectAnomalies(history);
+    }
+
+    return response;
+  }
+
+  /**
+   * Quick triage — fast checks only (skips deps/coverage).
+   * Returns in ~1-2s instead of ~8-12s for full check.
+   * Skipped checks are included as warning placeholders.
+   */
+  private async pulseliveQuick(
+    scanner: Scanner,
+    history: HistoryEntry[],
+    trendAnalyzer: TrendAnalyzer
+  ): Promise<any> {
+    const startTime = Date.now();
+    const results = await scanner.runQuickChecks();
+    const items = results.map(r => this.enrichResult(r));
+
+    const response: any = {
+      version: VERSION,
+      timestamp: new Date().toISOString(),
+      quick: true,
+      duration: Date.now() - startTime,
+      results: items,
+      summary: {
+        ...this.computeSummary(results),
+        note: 'Quick mode — deps and coverage skipped for speed. Run pulselive_check for full results.'
+      }
+    };
+
+    if (history.length > 0) {
       const checkTypes = new Set<string>();
       history.forEach(e => e.results.forEach(r => checkTypes.add(r.type)));
       results.forEach(r => checkTypes.add(r.type));
