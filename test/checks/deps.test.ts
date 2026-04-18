@@ -35,7 +35,8 @@ describe('DepsCheck', () => {
     
     (execSync as any).mockImplementation((command: string) => {
       if (command.includes('npm audit')) {
-        return JSON.stringify({
+        const err: any = new Error('exit code 1');
+        err.stdout = JSON.stringify({
           vulnerabilities: {
             lodash: { severity: 'high' },
             moment: { severity: 'medium' }
@@ -49,11 +50,14 @@ describe('DepsCheck', () => {
             }
           }
         });
+        throw err;
       } else if (command.includes('npm outdated')) {
-        return JSON.stringify({
+        const err: any = new Error('exit code 1');
+        err.stdout = JSON.stringify({
           express: { current: '4.18.0', wanted: '4.18.2' },
           moment: { current: '2.29.0', wanted: '2.29.4' }
         });
+        throw err;
       }
       return '';
     });

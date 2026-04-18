@@ -26,10 +26,22 @@ export class DepsCheck {
       let outdated = 0;
 
       try {
-        const auditOutput = execSync('npm audit --json', { encoding: 'utf8' });
-        const auditData = JSON.parse(auditOutput);
-        
-        if (auditData.vulnerabilities) {
+        let auditData: any;
+        try {
+          const auditOutput = execSync('npm audit --json', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+          auditData = JSON.parse(auditOutput);
+        } catch (error: any) {
+          // npm audit exits 1 when vulnerabilities found, but still outputs valid JSON
+          if (error.stdout) {
+            try {
+              auditData = JSON.parse(error.stdout);
+            } catch {
+              // Genuine parse failure — not a vulns-found exit
+            }
+          }
+        }
+
+        if (auditData?.vulnerabilities) {
           Object.values(auditData.vulnerabilities).forEach((vuln: any) => {
             const severity = vuln.severity.toLowerCase();
             if (severity in vulnerabilities) {
@@ -38,16 +50,31 @@ export class DepsCheck {
           });
         }
       } catch (error) {
-        // npm audit failed or no vulnerabilities
+        // Unexpected error during audit processing
       }
 
       // Check outdated packages
       try {
-        const outdatedOutput = execSync('npm outdated --json', { encoding: 'utf8' });
-        const outdatedData = JSON.parse(outdatedOutput);
-        outdated = Object.keys(outdatedData).length;
+        let outdatedData: any;
+        try {
+          const outdatedOutput = execSync('npm outdated --json', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+          outdatedData = JSON.parse(outdatedOutput);
+        } catch (error: any) {
+          // npm outdated exits 1 when outdated packages found, but still outputs JSON
+          if (error.stdout) {
+            try {
+              outdatedData = JSON.parse(error.stdout);
+            } catch {
+              // Genuine parse failure
+            }
+          }
+        }
+
+        if (outdatedData && typeof outdatedData === 'object') {
+          outdated = Object.keys(outdatedData).length;
+        }
       } catch (error) {
-        // npm outdated failed
+        // Unexpected error during outdated processing
       }
 
       const totalVulnerabilities = 
@@ -79,28 +106,58 @@ export class DepsCheck {
   }
 
   private checkOtherPackageManagers(): CheckResult {
-    // Try pip audit
+    // Try pip-audit (correct command name)
     try {
-      execSync('pip audit', { stdio: 'pipe' });
+      execSync('pip-audit --format json', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
       return {
         type: 'deps',
         status: 'success',
         message: 'No Python dependency issues found'
       };
-    } catch (error) {
-      // pip audit failed or not available
+    } catch (error: any) {
+      // pip-audit exits 1 when vulnerabilities found — parse stdout
+      if (error.stdout) {
+        try {
+          const auditData = JSON.parse(error.stdout);
+          const vulnCount = auditData.dependencies?.reduce(
+            (sum: number, dep: any) => sum + (dep.vulns?.length || 0), 0
+          ) || 0;
+          if (vulnCount > 0) {
+            return {
+              type: 'deps',
+              status: 'warning',
+              message: `${vulnCount} Python vulnerabilities found`,
+              details: { vulnerabilities: { critical: 0, high: 0, medium: vulnCount, low: 0 }, outdated: 0 }
+            };
+          }
+        } catch {
+          // Parse failure
+        }
+      }
     }
 
-    // Try go vulncheck
+    // Try govulncheck (correct command name)
     try {
-      execSync('go vulncheck ./...', { stdio: 'pipe' });
+      execSync('govulncheck ./...', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
       return {
         type: 'deps',
         status: 'success',
         message: 'No Go dependency issues found'
       };
-    } catch (error) {
-      // go vulncheck failed or not available
+    } catch (error: any) {
+      // govulncheck exits non-zero when vulnerabilities found
+      const output = error.stdout || error.stderr || '';
+      if (output) {
+        const vulnCount = (output.match(/Vulnerability/g) || []).length;
+        if (vulnCount > 0) {
+          return {
+            type: 'deps',
+            status: 'warning',
+            message: `${vulnCount} Go vulnerabilities found`,
+            details: { vulnerabilities: { critical: 0, high: 0, medium: vulnCount, low: 0 }, outdated: 0 }
+          };
+        }
+      }
     }
 
     return {

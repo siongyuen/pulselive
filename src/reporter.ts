@@ -26,8 +26,7 @@ export class Reporter {
     const groupedResults = this.groupResults(results);
 
     for (const [type, typeResults] of Object.entries(groupedResults)) {
-      const icon = this.getIcon(typeResults[0].status);
-      const header = this.getHeader(type);
+const header = this.getHeader(type);
       output += `${header}\n`;
 
       for (const result of typeResults) {
@@ -36,7 +35,7 @@ export class Reporter {
         output += `  ${statusIcon} ${statusColor(result.message)}\n`;
         
         if (result.details) {
-          this.addDetails(output, result);
+          output = this.addDetails(output, result);
         }
       }
       output += '\n';
@@ -60,7 +59,7 @@ export class Reporter {
         output += `  ${statusIcon} ${result.message}\n`;
         
         if (result.details) {
-          this.addDetails(output, result);
+          output = this.addDetails(output, result);
         }
       }
       output += '\n';
@@ -136,7 +135,7 @@ export class Reporter {
     }
   }
 
-  private addDetails(output: string, result: CheckResult): void {
+  private addDetails(output: string, result: CheckResult): string {
     // Add details in a more readable format
     if (result.details) {
       if (result.type === 'git' && result.details) {
@@ -156,6 +155,7 @@ export class Reporter {
         }
       }
     }
+    return output;
   }
 
   private formatSummary(results: CheckResult[]): string {

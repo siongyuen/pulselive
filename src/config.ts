@@ -37,7 +37,8 @@ export class ConfigLoader {
   private loadConfig(): PulseliveConfig {
     try {
       const configContent = readFileSync(this.configPath, 'utf8');
-      return yaml.parse(configContent) as PulseliveConfig;
+      const parsed = yaml.parse(configContent);
+      return (parsed && typeof parsed === 'object') ? parsed as PulseliveConfig : {};
     } catch (error) {
       return {};
     }
@@ -48,17 +49,17 @@ export class ConfigLoader {
   }
 
   autoDetect(): PulseliveConfig {
-    const detectedConfig: PulseliveConfig = { ...this.config };
+    const detectedConfig: PulseliveConfig = JSON.parse(JSON.stringify(this.config || {}));
 
     // Auto-detect GitHub repo from git remote
     if (!detectedConfig.github?.repo) {
       try {
-        const gitRemote = execSync('git remote get-url origin', { encoding: 'utf8' }).trim();
-        const match = gitRemote.match(/github\.com[:\/]([^\/.]+)\/([^\/.]+)(\.git)?$/);
+        const gitRemote = execSync('git remote get-url origin', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+        const match = gitRemote.match(/github\.com[:\/]([^\/]+)\/([^\/]+?)(\.git)?$/);
         if (match) {
           detectedConfig.github = {
-            repo: `${match[1]}/${match[2]}`,
-            ...detectedConfig.github
+            ...detectedConfig.github,
+            repo: `${match[1]}/${match[2]}`
           };
         }
       } catch (error) {
@@ -68,18 +69,25 @@ export class ConfigLoader {
 
     // Auto-detect language from files
     const packageJsonPath = path.join(process.cwd(), 'package.json');
+    const requirementsPath = path.join(process.cwd(), 'requirements.txt');
+    const goModPath = path.join(process.cwd(), 'go.mod');
     if (!detectedConfig.checks) {
       detectedConfig.checks = {};
     }
 
-    // Enable deps check if package.json exists
-    if (require('fs').existsSync(packageJsonPath)) {
-      detectedConfig.checks.deps = true;
+    // Enable deps check if package manager file exists (only if not explicitly set)
+    const fs = require('fs');
+    if (detectedConfig.checks.deps === undefined) {
+      if (fs.existsSync(packageJsonPath) || fs.existsSync(requirementsPath) || fs.existsSync(goModPath)) {
+        detectedConfig.checks.deps = true;
+      }
     }
 
-    // Enable git check if .git directory exists
-    if (require('fs').existsSync(path.join(process.cwd(), '.git'))) {
-      detectedConfig.checks.git = true;
+    // Enable git check if .git directory exists (only if not explicitly set)
+    if (detectedConfig.checks.git === undefined) {
+      if (fs.existsSync(path.join(process.cwd(), '.git'))) {
+        detectedConfig.checks.git = true;
+      }
     }
 
     return detectedConfig;
