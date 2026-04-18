@@ -60,29 +60,16 @@ describe('GitCheck', () => {
     expect(result.details.divergence).toContain('ahead');
   });
 
-  it('should handle divergence detection failure', async () => {
-    (execFileSync as any).mockImplementation((cmd: string, args: string[]) => {
-      const command = args.join(' ');
-      if (command.includes('rev-parse --abbrev-ref HEAD@{upstream}')) {
-        throw new Error('no upstream');
-      } else if (command.includes('rev-parse --verify')) {
-        throw new Error('branch not found');
-      } else if (command.includes('rev-parse --abbrev-ref HEAD') && args.length === 3) {
-        return 'feature-branch';
-      } else if (command.includes('log --oneline -5')) {
-        return 'abc1234 Initial commit';
-      } else if (command.includes('status --porcelain')) {
-        return '';
-      } else if (command.includes('rev-parse main')) {
-        throw new Error('main branch not found');
-      }
-      return '';
+  it('should handle non-git repository gracefully', async () => {
+    (execFileSync as any).mockImplementation(() => {
+      const error = new Error('fatal: not a git repository (or any of the parent directories): .git');
+      throw error;
     });
     
     const result = await gitCheck.run();
     
     expect(result.type).toBe('git');
-    expect(result.status).toBe('success');
-    expect(result.details.divergence).toBe('unknown');
+    expect(result.status).toBe('warning');
+    expect(result.message).toContain('Not a git repository — git-dependent checks skipped');
   });
 });

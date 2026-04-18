@@ -97,7 +97,7 @@ export class GitCheck {
         return {
           type: 'git',
           status: 'warning',
-          message: 'Not a git repository'
+          message: 'Not a git repository — git-dependent checks skipped'
         };
       }
       if (errMsg.includes('ambiguous argument') && errMsg.includes('HEAD')) {

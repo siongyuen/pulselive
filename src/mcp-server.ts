@@ -83,7 +83,7 @@ export class MCPServer {
 
         if (!tool) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Missing tool parameter' }));
+          res.end(JSON.stringify({ error: 'Missing required parameter: tool' }));
           return;
         }
 
