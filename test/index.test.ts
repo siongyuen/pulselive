@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'child_process';
 import { writeFileSync, readFileSync, readdirSync, existsSync, mkdirSync, rmSync } from 'fs';
 import path from 'path';
+import { VERSION } from '../src/version';
 
 const cliPath = path.resolve(__dirname, '../dist/index.js');
 
@@ -9,7 +10,7 @@ describe('CLI entry point', () => {
   describe('--version', () => {
     it('outputs the current version', () => {
       const result = execFileSync('node', [cliPath, '--version'], { encoding: 'utf8' });
-      expect(result.trim()).toBe('0.3.0');
+      expect(result.trim()).toBe(VERSION);
     });
   });
 
