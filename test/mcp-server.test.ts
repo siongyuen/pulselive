@@ -75,10 +75,10 @@ describe('MCPServer', () => {
     });
   });
 
-  describe('unknown tool handling', () => {
-    it('source code returns 400 for unknown tools', () => {
+  describe('missing tool parameter handling', () => {
+    it('source code returns specific error message for missing tool parameter', () => {
       const source = fs.readFileSync(sourcePath, 'utf8');
-      expect(source).toContain('Unknown tool');
+      expect(source).toContain('Missing required parameter: tool');
     });
   });
 

@@ -31,7 +31,7 @@ program
   .option('--ci', 'Deprecated: use --fail-on-error instead')
   .option('--compare', 'Compare current run with previous run')
   .option('--include-trends', 'Include trend analysis in JSON output')
-  .option('--quick', 'Quick triage — skip deps and coverage for ~2s response')
+  .option('--quick', 'Quick triage - skip deps and coverage for ~2s response')
   .action(async (options) => {
     const startTime = Date.now();
     const configLoader = new ConfigLoader();
@@ -98,7 +98,7 @@ program
 
 program
   .command('quick')
-  .description('Quick triage — skip deps/coverage for ~2s response')
+  .description('Quick triage - skip deps/coverage for ~2s response')
   .option('--json', 'Output results as JSON')
   .action(async (options) => {
     const startTime = Date.now();
@@ -120,7 +120,7 @@ program
       }, null, 2));
     } else {
       console.log(reporter.format(results));
-      console.log(`\n⚡ Quick mode — deps and coverage skipped (${totalDuration}ms)`);
+      console.log(`\n⚡ Quick mode - deps and coverage skipped (${totalDuration}ms)`);
     }
 
     process.exit(0);
@@ -136,7 +136,7 @@ program
     const defaultConfig = {
       github: {
         repo: detected.github?.repo || ''
-        // Token is never written to config — use GITHUB_TOKEN or GH_TOKEN env vars
+        // Token is never written to config - use GITHUB_TOKEN or GH_TOKEN env vars
       },
       health: {
         allow_local: false,
@@ -349,27 +349,27 @@ program
 program
   .command('watch')
   .description('Continuous monitoring that re-runs checks on file changes')
-  .option('--quick', 'Quick triage — skip deps and coverage for ~2s response')
+  .option('--quick', 'Quick triage - skip deps and coverage for ~2s response')
   .option('--json', 'Output results as JSON')
   .option('--verbose', 'Show detailed output including execution times')
   .action(async (options) => {
     const fs = require('fs');
     const path = require('path');
-    
-    console.log('👁️  PulseLive watch mode started — monitoring for file changes');
+
+    console.log('👁️  PulseLive watch mode started - monitoring for file changes');
     console.log('    Press Ctrl+C to exit\n');
-    
+
     // Initial run
     const configLoader = new ConfigLoader();
     const config = configLoader.autoDetect();
     const scanner = new Scanner(config);
     const reporter = new Reporter(!options.json);
-    
+
     const runChecks = async () => {
       const startTime = Date.now();
       const results: CheckResult[] = options.quick ? await scanner.runQuickChecks() : await scanner.runAllChecks();
       const totalDuration = Date.now() - startTime;
-      
+
       if (options.json) {
         console.log(JSON.stringify({
           version: VERSION,
@@ -386,37 +386,37 @@ program
       }
       console.log('---');
     };
-    
+
     // Run initial checks
     await runChecks();
-    
+
     // Set up file watcher
     const watcher = fs.watch(process.cwd(), { recursive: true }, async (eventType: string, filename: string | Buffer) => {
       if (!filename) return;
-      
+
       const filenameStr = typeof filename === 'string' ? filename : filename.toString();
-      
+
       // Ignore .git, node_modules, and dotfiles
       if (filenameStr.startsWith('.git/') || filenameStr.startsWith('node_modules/') || filenameStr.startsWith('.')) {
         return;
       }
-      
+
       // Ignore temporary files and common editor files
       if (filenameStr.endsWith('~') || filenameStr.endsWith('.swp') || filenameStr.endsWith('.tmp')) {
         return;
       }
-      
+
       console.log(`\n📝 File changed: ${filenameStr} (${eventType})`);
       await runChecks();
     });
-    
+
     // Handle Ctrl+C gracefully
     process.on('SIGINT', () => {
       console.log('\n👋 Watch mode stopped');
       watcher.close();
       process.exit(0);
     });
-    
+
     process.on('SIGTERM', () => {
       console.log('\n👋 Watch mode stopped');
       watcher.close();
@@ -432,17 +432,17 @@ program
     const configLoader = new ConfigLoader();
     const config = configLoader.autoDetect();
     const scanner = new Scanner(config);
-    
+
     // Run checks to determine status
     const results: CheckResult[] = await scanner.runAllChecks();
-    
+
     // Determine overall status
     const hasErrors = results.some(r => r.status === 'error');
     const hasWarnings = results.some(r => r.status === 'warning');
-    
+
     let status = 'passing';
     let color = 'brightgreen';
-    
+
     if (hasErrors) {
       status = 'failing';
       color = 'red';
@@ -450,10 +450,10 @@ program
       status = 'warning';
       color = 'yellow';
     }
-    
+
     const badgeUrl = `https://img.shields.io/badge/pulselive-${status}-${color}`;
     const markdown = `![pulselive](${badgeUrl})`;
-    
+
     if (options.json) {
       console.log(JSON.stringify({
         status,
@@ -475,32 +475,32 @@ program
     const config = configLoader.autoDetect();
     const scanner = new Scanner(config);
     const reporter = new Reporter(false);
-    
+
     // Run checks
     const results: CheckResult[] = await scanner.runAllChecks();
-    
+
     if (options.format === 'markdown') {
       // Generate markdown report
       let report = '# PulseLive Project Health Report\n\n';
-      
+
       // Summary table
       report += '## Summary\n\n';
       report += '| Check | Status | Message |\n';
       report += '|-------|--------|---------|\n';
-      
+
       results.forEach(result => {
         const statusIcon = result.status === 'success' ? '✅' : 
                           result.status === 'warning' ? '⚠️' : '❌';
         report += `| ${result.type} | ${statusIcon} ${result.status} | ${result.message} |\n`;
       });
-      
+
       report += '\n\n';
-      
+
       // Detailed findings by severity
       const errors = results.filter(r => r.status === 'error');
       const warnings = results.filter(r => r.status === 'warning');
       const successes = results.filter(r => r.status === 'success');
-      
+
       if (errors.length > 0) {
         report += '## Critical Issues 🔴\n\n';
         errors.forEach((error, index) => {
@@ -511,7 +511,7 @@ program
           report += '\n';
         });
       }
-      
+
       if (warnings.length > 0) {
         report += '## Warnings ⚠️\n\n';
         warnings.forEach((warning, index) => {
@@ -522,7 +522,7 @@ program
           report += '\n';
         });
       }
-      
+
       if (successes.length > 0) {
         report += '## Healthy Checks ✅\n\n';
         successes.forEach((success, index) => {
@@ -533,30 +533,32 @@ program
           report += '\n';
         });
       }
-      
+
       // Recommendations
       report += '## Recommendations\n\n';
-      
+
       if (errors.length > 0) {
         report += '- 🔴 **Critical**: Address the critical issues immediately as they may indicate broken builds, failed deployments, or security vulnerabilities.\n';
       }
-      
+
       if (warnings.length > 0) {
         report += '- ⚠️ **Warnings**: Review warning items for potential improvements in code quality, test coverage, or dependency management.\n';
       }
-      
+
       if (successes.length === results.length) {
         report += '- ✅ **Excellent**: All checks are passing! Keep up the good work maintaining project health.\n';
       }
-      
+
       report += '\n---\n\n';
       report += `*Generated by PulseLive v${VERSION} on ${new Date().toISOString()}*\n`;
-      
+
       console.log(report);
     } else {
       // Text format (fallback to standard reporter)
       console.log(reporter.format(results));
     }
+
+    process.exit(0);
   });
 
 program
@@ -606,7 +608,7 @@ function saveHistory(results: CheckResult[]): void {
     const filePath = path.join(historyDir, `run-${timestamp}.json`);
     writeFileSync(filePath, JSON.stringify(historyEntry, null, 2));
   } catch {
-    // Silent fail — history is best-effort
+    // Silent fail - history is best-effort
   }
 }
 
