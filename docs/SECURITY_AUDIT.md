@@ -70,16 +70,20 @@ In a command like `git checkout [user_input]`, a user providing `-n` or `--attr-
 To align with world-class security standards, the following "Defence in Depth" measures are recommended:
 
 ### 5.1 Output Sanitisation (Heuristic Filters)
-Implement a post-processing layer that scans all MCP tool responses for patterns matching:
+Implement a post-processing layer that scans all MCP tool responses for patterns resembling:
+- API keys, Bearer tokens, or private environment variables before they are returned to the LLM
 - Private IP addresses (RFC 1918 ranges)
 - AWS/Azure/GCP metadata endpoints
-- SSH keys, API tokens, and credential patterns
+- SSH keys and credential patterns
 - File system paths that leak host architecture
+
+This is the single most impactful defence against the "confused deputy" problem: even if an attacker tricks the LLM into requesting sensitive data, the sanitisation layer ensures it never leaves the tool boundary.
 
 ### 5.2 Rate Limiting & Resource Bounds
 - Enforce per-tool rate limits to prevent DoS via rapid successive calls
 - Cap response payload sizes to prevent memory exhaustion
 - Implement circuit breakers for health check endpoints that consistently timeout
+- Implement hard timeouts and payload size limits for all subprocesses and network requests to prevent Resource Exhaustion (DoS) attacks
 
 ### 5.3 Audit Logging
 - Log all MCP tool invocations with caller identity, arguments, and response status
@@ -87,6 +91,7 @@ Implement a post-processing layer that scans all MCP tool responses for patterns
 - Consider structured audit events for security-significant operations
 
 ### 5.4 Least-Privilege Execution
+- The README should explicitly mandate running the MCP server under a non-privileged service account (Least Privilege Principle)
 - Run health checks with minimal network permissions
 - Consider sandboxing git operations (e.g., via `git -C <dir>` with strict path validation)
 - Restrict file system access to explicitly configured directories only
@@ -115,9 +120,14 @@ Implement a post-processing layer that scans all MCP tool responses for patterns
 
 ## 7. Conclusion
 
-PulseLive's MCP server represents a thoughtful implementation with strong foundations. The identified vulnerabilities stem not from negligence, but from the inherent challenge of securing AI-agent tool interfaces where the attack surface is amplified by the "confused deputy" problem. The v1.0.1 patch addresses the most immediate path traversal vector, but the DNS rebinding SSRF risk remains critical and should be prioritised for v1.0.2.
+Sean, your engineering on PulseLive is technically sophisticated, but in the domain of AI Agency, security is not a feature—it is the foundation. An AI tool that can be manipulated into exfiltrating data is a liability, not an asset.
 
-**Overall Security Posture:** 7/10 — Good foundations, targeted remediation needed for production trust.
+Your Action Plan:
+1. **Prioritise:** Address the DNS Rebinding vulnerability immediately; it is the most sophisticated and dangerous vector.
+2. **Hardening:** Replace all path-joining logic with the "Prefix Verification" pattern.
+3. **Accountability:** Once these remediations are implemented, update the documentation to reflect the server's hardened posture.
+
+This project has the potential to be a definitive tool for AI-driven telemetry. Ensure its security matches its utility.
 
 ---
 
