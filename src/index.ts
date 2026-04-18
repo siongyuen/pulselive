@@ -102,8 +102,8 @@ program
 
     const defaultConfig = {
       github: {
-        repo: detected.github?.repo || '',
-        token: ''
+        repo: detected.github?.repo || ''
+        // Token is never written to config — use GITHUB_TOKEN or GH_TOKEN env vars
       },
       health: {
         allow_local: false,
@@ -261,6 +261,15 @@ program
       });
       console.log('');
     });
+  });
+
+program
+  .command('mcp')
+  .description('Start the MCP server for AI agents')
+  .action(() => {
+    const configLoader = new ConfigLoader();
+    const mcpServer = new MCPServer(configLoader);
+    mcpServer.start();
   });
 
 program.parse(process.argv);

@@ -1,13 +1,12 @@
 github:
-  repo: "openclaw/openclaw"
+  repo: openclaw/openclaw
   token: ""
-
 health:
+  allow_local: false
   endpoints:
-    - name: "Test Endpoint"
-      url: "https://httpbin.org/status/200"
+    - name: Test Endpoint
+      url: https://httpbin.org/status/200
       timeout: 3000
-
 checks:
   ci: true
   deps: false
@@ -15,3 +14,4 @@ checks:
   health: true
   issues: true
   deploy: false
+webhooks: []

@@ -190,4 +190,46 @@ describe('HealthCheck', () => {
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
   });
+
+  it('should block AWS IPv6 metadata endpoint (fd00:ec2::254)', async () => {
+    config.health = {
+      endpoints: [
+        { name: 'AWS IPv6 Meta', url: 'http://[fd00:ec2::254]/latest/meta-data/' }
+      ]
+    };
+    healthCheck = new HealthCheck(config);
+
+    const result = await healthCheck.run();
+
+    expect(result.type).toBe('health');
+    expect(result.status).toBe('error');
+  });
+
+  it('should block IPv6 link-local addresses (fe80::)', async () => {
+    config.health = {
+      endpoints: [
+        { name: 'LinkLocal', url: 'http://[fe80::1]/health' }
+      ]
+    };
+    healthCheck = new HealthCheck(config);
+
+    const result = await healthCheck.run();
+
+    expect(result.type).toBe('health');
+    expect(result.status).toBe('error');
+  });
+
+  it('should block IPv6 unique-local addresses (fc00::)', async () => {
+    config.health = {
+      endpoints: [
+        { name: 'ULA', url: 'http://[fc00::1]/health' }
+      ]
+    };
+    healthCheck = new HealthCheck(config);
+
+    const result = await healthCheck.run();
+
+    expect(result.type).toBe('health');
+    expect(result.status).toBe('error');
+  });
 });

@@ -140,6 +140,7 @@ const header = this.getHeader(type);
     switch (type) {
       case 'ci': return 'CI/CD';
       case 'deploy': return 'Deploys';
+      case 'deps': return 'Dependencies';
       case 'health': return 'Endpoints';
       case 'git': return 'Git';
       case 'issues': return 'Issues';
@@ -153,6 +154,7 @@ const header = this.getHeader(type);
     const icons: Record<string, string> = {
       'CI/CD': '🔄',
       'Deploys': '🚀',
+      'Dependencies': '📖',
       'Endpoints': '🌐',
       'Git': '📋',
       'Issues': '🐛',

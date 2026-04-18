@@ -160,7 +160,7 @@ export class CoverageCheck {
 
     if (provider === 'coveralls') {
       try {
-        const coverage = await this.fetchCoveralls(remoteRepo, remoteToken);
+        const coverage = await this.fetchCoveralls(remoteRepo);
         if (coverage !== null) return { lines: coverage, source: 'coveralls' };
       } catch {
         // Coveralls fetch failed
@@ -177,7 +177,7 @@ export class CoverageCheck {
       }
 
       try {
-        const coverage = await this.fetchCoveralls(remoteRepo, remoteToken);
+        const coverage = await this.fetchCoveralls(remoteRepo);
         if (coverage !== null) return { lines: coverage, source: 'coveralls' };
       } catch {
         // Coveralls failed
@@ -236,7 +236,7 @@ export class CoverageCheck {
    * Fetch coverage from Coveralls API.
    * Public repos: https://coveralls.io/github/{owner}/{repo}.json
    */
-  private async fetchCoveralls(repo: string, _token?: string): Promise<number | null> {
+  private async fetchCoveralls(repo: string): Promise<number | null> {
     const [owner, name] = repo.split('/');
     const url = `https://coveralls.io/github/${owner}/${name}.json`;
 

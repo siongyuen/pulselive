@@ -31,8 +31,9 @@ function ipv4ToInt(ip: string): number {
 }
 
 function isBlockedIP(ip: string): boolean {
-  // IPv6 loopback or private
-  if (ip === '::1' || ip.startsWith('fc') || ip.startsWith('fe8')) return true;
+  // IPv6 checks
+  if (ip === '::1') return true;                           // Loopback
+  if (isIPv6InRanges(ip)) return true;                      // Private/link-local/metadata
 
   // IPv4 checks
   const match = ip.match(/^(\d{1,3}\.){3}\d{1,3}$/);
@@ -42,6 +43,68 @@ function isBlockedIP(ip: string): boolean {
   }
 
   return false;
+}
+
+/**
+ * Check IPv6 addresses against blocked ranges:
+ * - fc00::/7  (unique local — includes fd00:ec2::254 AWS metadata)
+ * - fe80::/10 (link-local)
+ * - ::1       (loopback — handled above)
+ * - ff00::/8  (multicast)
+ */
+function isIPv6InRanges(ip: string): boolean {
+  // Normalize: remove brackets, lowercase
+  const normalized = ip.replace(/[\[\]]/g, '').toLowerCase();
+
+  // Only process valid IPv6 addresses
+  if (!normalized.includes(':')) return false;
+
+  // Expand :: shorthand for comparison
+  const parts = expandIPv6(normalized);
+  if (!parts) return false;
+
+  const firstHex = parseInt(parts[0], 16);
+
+  // fc00::/7 — unique local (first 7 bits = 0xfc or 0xfd)
+  // In hex: first byte starts with fc or fd
+  if (firstHex >= 0xfc00 && firstHex <= 0xfdff) return true;
+
+  // fe80::/10 — link-local (first 10 bits = 0xfe8)
+  if (firstHex >= 0xfe80 && firstHex <= 0xfebf) return true;
+
+  // ff00::/8 — multicast
+  if (firstHex >= 0xff00 && firstHex <= 0xffff) return true;
+
+  return false;
+}
+
+/**
+ * Expand an IPv6 address into 8 hextets.
+ * e.g. "fd00:ec2::254" → ["fd00","00ec","0000","0000","0000","0000","0000","0254"]
+ */
+function expandIPv6(ip: string): string[] | null {
+  try {
+    // Handle :: expansion
+    const halves = ip.split('::');
+    if (halves.length > 2) return null; // Invalid: multiple ::
+
+    let left: string[], right: string[];
+    if (halves.length === 2) {
+      left = halves[0] ? halves[0].split(':') : [];
+      right = halves[1] ? halves[1].split(':') : [];
+      const missing = 8 - left.length - right.length;
+      if (missing < 0) return null;
+      const expanded = [...left, ...Array(missing).fill('0'), ...right];
+      return expanded.map(h => h.padStart(4, '0'));
+    }
+
+    // No :: — must be exactly 8 hextets
+    const parts = ip.split(':');
+    if (parts.length !== 8) return null;
+    return parts.map(h => h.padStart(4, '0'));
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -3,3 +3,14 @@ dist/
 .env
 coverage/
 *.js.map
+.pulselive-history/
+test-results/
+test-coverage/
+*.tgz
+complete-mcp-server.js
+minimal-server.js
+standalone-mcp-server.js
+run-mcp-server.js
+start-mcp.js
+start-server-direct.js
+test-mcp.js
