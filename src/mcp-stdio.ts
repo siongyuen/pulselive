@@ -16,7 +16,7 @@ import { VERSION } from './version';
  *   "mcpServers": {
  *     "pulselive": {
  *       "command": "npx",
- *       "args": ["-y", "@siongyuencheah/pulselive", "mcp-stdio"]
+ *       "args": ["-y", "pulselive-cli", "mcp-stdio"]
  *     }
  *   }
  * }

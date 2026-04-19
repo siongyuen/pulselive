@@ -25,9 +25,9 @@ PulseLive fills the gap. One call gives you the full picture: what's broken, wha
 ## Installation
 
 ```bash
-npx @siongyuencheah/pulselive check
+npx pulselive-cli check
 # or install globally
-npm install -g @siongyuencheah/pulselive
+npm install -g pulselive-cli
 pulselive check
 ```
 
@@ -95,7 +95,7 @@ Add to your `claude_desktop_config.json`:
   "mcpServers": {
     "pulselive": {
       "command": "npx",
-      "args": ["-y", "@siongyuencheah/pulselive", "mcp-stdio"]
+      "args": ["-y", "pulselive-cli", "mcp-stdio"]
     }
   }
 }
