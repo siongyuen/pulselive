@@ -7,14 +7,38 @@ import { Reporter } from './reporter';
 import { MCPServer } from './mcp-server';
 import { MCPStdioServer } from './mcp-stdio';
 import { TrendAnalyzer, HistoryEntry } from './trends';
-import { writeFileSync, readFileSync, readdirSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { execFileSync } from 'child_process';
 import yaml from 'yaml';
 import path from 'path';
 import os from 'os';
 
 import { VERSION } from './version';
 import { PulseliveConfig } from './config';
-import { mapToSchemaResult, extractMetricsFromResult, formatTimeAgo, compareWithPrevious, getTrendIcon, computeMultiRepoSummary, loadHistory, saveHistory, FixResult, handleMultiRepoCheck, fixDependencies } from './cli-helpers';
+import { 
+  mapToSchemaResult, 
+  extractMetricsFromResult, 
+  formatTimeAgo, 
+  compareWithPrevious, 
+  getTrendIcon, 
+  computeMultiRepoSummary, 
+  loadHistory, 
+  saveHistory, 
+  FixResult, 
+  handleMultiRepoCheck, 
+  fixDependencies,
+  runSingleRepoCheck, 
+  formatCheckOutput, 
+  handleCheckExitCodes, 
+  handleComparison, 
+  handleHistory,
+  runFixCommand,
+  formatFixOutput,
+  handleFixExitCodes,
+  runQuickCheck,
+  formatQuickOutput,
+  handleQuickExitCodes
+} from './cli-helpers';
 
 
 const program = new Command();
@@ -44,83 +68,16 @@ program
       return;
     }
     
-    // Single repo mode (existing logic)
-    const startTime = Date.now();
-    const workingDir = dir || process.cwd();
-    const configLoader = dir ? new ConfigLoader(dir + '/.pulselive.yml') : new ConfigLoader();
-    const config = configLoader.autoDetect(workingDir);
-    const scanner = new Scanner(config, workingDir);
-    const reporter = new Reporter(!options.json);
-
-    const results: CheckResult[] = options.quick ? await scanner.runQuickChecks() : await scanner.runAllChecks();
-    const totalDuration = Date.now() - startTime;
-
-    if (options.json) {
-      const output: any = {
-        schema_version: "1.0.0",
-        schema_url: "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
-        version: VERSION,
-        timestamp: new Date().toISOString(),
-        duration: totalDuration,
-        quick: !!options.quick,
-        results: results.map(r => mapToSchemaResult(r))
-      };
-      if (options.includeTrends) {
-        const history = loadHistory();
-        const trendAnalyzer = new TrendAnalyzer();
-        const checkTypes = new Set<string>();
-        history.forEach((entry: any) => {
-          entry.results.forEach((r: any) => checkTypes.add(r.type));
-        });
-        results.forEach((r: CheckResult) => checkTypes.add(r.type));
-        const trends: any = {};
-        for (const ct of checkTypes) {
-          trends[ct] = trendAnalyzer.analyze(ct, history);
-        }
-        output.trends = trends;
-        output.anomalies = trendAnalyzer.detectAnomalies(history);
-      }
-      console.log(JSON.stringify(output, null, 2));
-    } else if (options.junit) {
-      console.log(reporter.formatJunit(results));
-    } else if (options.verbose) {
-      console.log(reporter.formatVerbose(results));
-      console.log(`\n⏱  Total: ${totalDuration}ms`);
-    } else {
-      console.log(reporter.format(results));
-    }
-
-    // Save history after running checks (unless comparing)
-    if (!options.compare) {
-      saveHistory(results);
-    }
-
-    // Compare with previous run if requested
-    if (options.compare) {
-      const comparison = compareWithPrevious(results);
-      if (comparison) {
-        console.log('\n' + comparison);
-      }
-    }
-
-    // Structured exit codes
-    if (options.exitCode) {
-      const hasErrors = results.some((r: CheckResult) => r.status === 'error');
-      const hasWarnings = results.some((r: CheckResult) => r.status === 'warning');
-      
-      if (hasErrors) {
-        process.exit(1); // Critical issues found
-      } else if (hasWarnings) {
-        process.exit(2); // Warnings only
-      } else {
-        process.exit(0); // All checks healthy
-      }
-    } else if (options.failOnError || options.ci) {
-      const hasCritical = results.some((r: CheckResult) => r.status === 'error');
-      if (hasCritical) {
-        process.exit(1);
-      }
-    }
+    // Single repo mode using extracted functions
+    const { results, duration, config, workingDir } = await runSingleRepoCheck(dir, options);
+    formatCheckOutput(results, duration, options);
+    
+    // Handle history and comparison
+    handleHistory(results, options, workingDir);
+    handleComparison(results, options);
+    
+    // Handle exit codes
+    handleCheckExitCodes(results, options, { exit: process.exit, log: console.log, error: console.error, readFile: (p) => readFileSync(p, 'utf8'), writeFile: (p, c) => writeFileSync(p, c), existsSync, mkdirSync, execFile: (cmd, args, opts) => execFileSync(cmd, args, opts).toString(), cwd: () => process.cwd() });
   });
 
 program
@@ -133,66 +90,10 @@ program
   .option('--json', 'Output results as structured JSON')
   .option('--yes', 'Skip confirmation prompts')
   .action(async (dir, options) => {
-    const workingDir = dir || process.cwd();
-    const configLoader = dir ? new ConfigLoader(dir + '/.pulselive.yml') : new ConfigLoader();
-    const config = configLoader.autoDetect(workingDir);
-    
-    const startTime = Date.now();
-    const results: FixResult[] = [];
-    
-    // Dependency fixes
-    if (options.deps || options.all) {
-      const depsResult = await fixDependencies(workingDir, options.dryRun, options.yes);
-      results.push(depsResult);
-    }
-    
-    const totalDuration = Date.now() - startTime;
-    
-    if (options.json) {
-      console.log(JSON.stringify({
-        schema_version: "1.0.0",
-        schema_url: "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
-        version: VERSION,
-        timestamp: new Date().toISOString(),
-        duration: totalDuration,
-        fix_results: results
-      }, null, 2));
-    } else {
-      console.log('🔧 PULSELIVE FIX REPORT');
-      console.log('=======================\n');
-      
-      results.forEach((result, index) => {
-        const statusIcon = result.success ? '✅' : result.partial ? '⚠️' : '❌';
-        console.log(`${index + 1}. ${statusIcon} ${result.target}`);
-        console.log(`   Status: ${result.status}`);
-        if (result.message) {
-          console.log(`   Message: ${result.message}`);
-        }
-        if (result.changes && result.changes.length > 0) {
-          console.log(`   Changes:`);
-          result.changes.forEach(change => {
-            console.log(`     - ${change}`);
-          });
-        }
-        if (result.dryRun) {
-          console.log(`   📝 Dry run - no changes made`);
-        }
-        console.log('');
-      });
-      
-      console.log(`⏱  Total: ${totalDuration}ms`);
-      
-      // Exit codes for fix command
-      const hasFailures = results.some(r => !r.success && !r.partial);
-      const hasPartial = results.some(r => r.partial);
-      
-      if (hasFailures) {
-        process.exit(1); // Fix failures
-      } else if (hasPartial) {
-        process.exit(2); // Partial success
-      } else {
-        process.exit(0); // All fixes successful
-      }
+    const { results, duration } = await runFixCommand(dir, options);
+    formatFixOutput(results, duration, options);
+    if (!options.json) {
+      handleFixExitCodes(results);
     }
   });
 
@@ -208,45 +109,10 @@ program
       return;
     }
     
-    // Single repo mode (existing logic)
-    const startTime = Date.now();
-    const workingDir = dir || process.cwd();
-    const configLoader = dir ? new ConfigLoader(dir + '/.pulselive.yml') : new ConfigLoader();
-    const config = configLoader.autoDetect(workingDir);
-    const scanner = new Scanner(config, workingDir);
-    const reporter = new Reporter(!options.json);
-
-    const results: CheckResult[] = await scanner.runQuickChecks();
-    const totalDuration = Date.now() - startTime;
-
-    if (options.json) {
-      console.log(JSON.stringify({
-        schema_version: "1.0.0",
-        schema_url: "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
-        version: VERSION,
-        timestamp: new Date().toISOString(),
-        quick: true,
-        duration: totalDuration,
-        results: results.map(r => mapToSchemaResult(r))
-      }, null, 2));
-    } else {
-      console.log(reporter.format(results));
-      console.log(`\n⚡ Quick mode - deps and coverage skipped (${totalDuration}ms)`);
-    }
-
-    // Structured exit codes for quick command
-    if (options.exitCode) {
-      const hasErrors = results.some((r: CheckResult) => r.status === 'error');
-      const hasWarnings = results.some((r: CheckResult) => r.status === 'warning');
-      
-      if (hasErrors) {
-        process.exit(1); // Critical issues found
-      } else if (hasWarnings) {
-        process.exit(2); // Warnings only
-      } else {
-        process.exit(0); // All checks healthy
-      }
-    }
+    // Single repo mode using extracted functions
+    const { results, duration } = await runQuickCheck(dir, options);
+    formatQuickOutput(results, duration, options);
+    handleQuickExitCodes(results, options);
   });
 
 program

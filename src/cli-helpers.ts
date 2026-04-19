@@ -11,6 +11,9 @@ import path from 'path';
 import os from 'os';
 import { PulseliveConfig } from './config';
 import { Scanner } from './scanner';
+import { ConfigLoader } from './config';
+import { Reporter } from './reporter';
+import { TrendAnalyzer } from './trends';
 
 // Dependency Injection Interface
 export interface CLIDeps {
@@ -594,7 +597,277 @@ export async function fixDependencies(workingDir: string, dryRun: boolean, skipC
   }
 }
 
-// ── Multi-repo check ───
+// ── Single Repo Check ───
+
+export async function runSingleRepoCheck(
+  dir: string | undefined,
+  options: { 
+    json?: boolean; 
+    junit?: boolean; 
+    verbose?: boolean; 
+    quick?: boolean; 
+    includeTrends?: boolean;
+    compare?: boolean
+  },
+  deps: CLIDeps = defaultCLIDeps
+): Promise<{ results: CheckResult[]; duration: number; config: PulseliveConfig; workingDir: string }> {
+  const startTime = Date.now();
+  const workingDir = dir || deps.cwd();
+  const configLoader = dir ? new ConfigLoader(dir + '/.pulselive.yml') : new ConfigLoader();
+  const config = configLoader.autoDetect(workingDir);
+  const scanner = new Scanner(config, workingDir);
+  
+  const results: CheckResult[] = options.quick ? await scanner.runQuickChecks() : await scanner.runAllChecks();
+  const totalDuration = Date.now() - startTime;
+  
+  return { results, duration: totalDuration, config, workingDir };
+}
+
+export function formatCheckOutput(
+  results: CheckResult[],
+  duration: number,
+  options: { json?: boolean; junit?: boolean; verbose?: boolean; quick?: boolean; includeTrends?: boolean },
+  deps: CLIDeps = defaultCLIDeps
+): void {
+  const reporter = new Reporter(!options.json);
+  
+  if (options.json) {
+    const output: any = {
+      schema_version: "1.0.0",
+      schema_url: "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
+      version: VERSION,
+      timestamp: new Date().toISOString(),
+      duration: duration,
+      quick: !!options.quick,
+      results: results.map(r => mapToSchemaResult(r))
+    };
+    
+    if (options.includeTrends) {
+      const history = loadHistory();
+      const trendAnalyzer = new TrendAnalyzer();
+      const checkTypes = new Set<string>();
+      history.forEach((entry: any) => {
+        entry.results.forEach((r: any) => checkTypes.add(r.type));
+      });
+      results.forEach((r: CheckResult) => checkTypes.add(r.type));
+      const trends: any = {};
+      for (const ct of checkTypes) {
+        trends[ct] = trendAnalyzer.analyze(ct, history);
+      }
+      output.trends = trends;
+      output.anomalies = trendAnalyzer.detectAnomalies(history);
+    }
+    
+    deps.log(JSON.stringify(output, null, 2));
+  } else if (options.junit) {
+    deps.log(reporter.formatJunit(results));
+  } else if (options.verbose) {
+    deps.log(reporter.formatVerbose(results));
+    deps.log(`\n⏱  Total: ${duration}ms`);
+  } else {
+    deps.log(reporter.format(results));
+  }
+}
+
+export function handleCheckExitCodes(
+  results: CheckResult[],
+  options: { exitCode?: boolean; failOnError?: boolean; ci?: boolean },
+  deps: CLIDeps = defaultCLIDeps
+): void {
+  // Structured exit codes
+  if (options.exitCode) {
+    const hasErrors = results.some((r: CheckResult) => r.status === 'error');
+    const hasWarnings = results.some((r: CheckResult) => r.status === 'warning');
+    
+    if (hasErrors) {
+      deps.exit(1); // Critical issues found
+    } else if (hasWarnings) {
+      deps.exit(2); // Warnings only
+    } else {
+      deps.exit(0); // All checks healthy
+    }
+  } else if (options.failOnError || options.ci) {
+    const hasCritical = results.some((r: CheckResult) => r.status === 'error');
+    if (hasCritical) {
+      deps.exit(1);
+    }
+  }
+}
+
+export function handleComparison(
+  results: CheckResult[],
+  options: { compare?: boolean },
+  deps: CLIDeps = defaultCLIDeps
+): void {
+  // Compare with previous run if requested
+  if (options.compare) {
+    const comparison = compareWithPrevious(results);
+    if (comparison) {
+      deps.log('\n' + comparison);
+    }
+  }
+}
+
+export function handleHistory(
+  results: CheckResult[],
+  options: { compare?: boolean },
+  workingDir: string,
+  deps: CLIDeps = defaultCLIDeps
+): void {
+  // Save history after running checks (unless comparing)
+  if (!options.compare) {
+    saveHistory(results);
+  }
+}
+
+export async function runFixCommand(
+  dir: string | undefined,
+  options: { deps?: boolean; dryRun?: boolean; all?: boolean; json?: boolean; yes?: boolean },
+  deps: CLIDeps = defaultCLIDeps
+): Promise<{ results: FixResult[]; duration: number }> {
+  const workingDir = dir || deps.cwd();
+  const configLoader = dir ? new ConfigLoader(dir + '/.pulselive.yml') : new ConfigLoader();
+  const config = configLoader.autoDetect(workingDir);
+  
+  const startTime = Date.now();
+  const results: FixResult[] = [];
+  
+  // Dependency fixes
+  if (options.deps || options.all) {
+    const depsResult = await fixDependencies(workingDir, options.dryRun || false, options.yes || false, deps);
+    results.push(depsResult);
+  }
+  
+  const totalDuration = Date.now() - startTime;
+  
+  return { results, duration: totalDuration };
+}
+
+export function formatFixOutput(
+  results: FixResult[],
+  duration: number,
+  options: { json?: boolean },
+  deps: CLIDeps = defaultCLIDeps
+): void {
+  if (options.json) {
+    deps.log(JSON.stringify({
+      schema_version: "1.0.0",
+      schema_url: "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
+      version: VERSION,
+      timestamp: new Date().toISOString(),
+      duration: duration,
+      fix_results: results
+    }, null, 2));
+  } else {
+    deps.log('🔧 PULSELIVE FIX REPORT');
+    deps.log('=======================\n');
+    
+    results.forEach((result, index) => {
+      const statusIcon = result.success ? '✅' : result.partial ? '⚠️' : '❌';
+      deps.log(`${index + 1}. ${statusIcon} ${result.target}`);
+      deps.log(`   Status: ${result.status}`);
+      if (result.message) {
+        deps.log(`   Message: ${result.message}`);
+      }
+      if (result.changes && result.changes.length > 0) {
+        deps.log(`   Changes:`);
+        result.changes.forEach(change => {
+          deps.log(`     - ${change}`);
+        });
+      }
+      if (result.dryRun) {
+        deps.log(`   📝 Dry run - no changes made`);
+      }
+      deps.log('');
+    });
+    
+    deps.log(`⏱  Total: ${duration}ms`);
+  }
+}
+
+export function handleFixExitCodes(
+  results: FixResult[],
+  deps: CLIDeps = defaultCLIDeps
+): void {
+  // Exit codes for fix command
+  const hasFailures = results.some(r => !r.success && !r.partial);
+  const hasPartial = results.some(r => r.partial);
+  
+  if (hasFailures) {
+    deps.exit(1); // Fix failures
+  } else if (hasPartial) {
+    deps.exit(2); // Partial success
+  } else {
+    deps.exit(0); // All fixes successful
+  }
+}
+
+export async function runQuickCheck(
+  dir: string | undefined,
+  options: { json?: boolean; repos?: string },
+  deps: CLIDeps = defaultCLIDeps
+): Promise<{ results: CheckResult[]; duration: number }> {
+  if (options.repos) {
+    // This will be handled by the caller
+    deps.exit(0);
+  }
+  
+  const startTime = Date.now();
+  const workingDir = dir || deps.cwd();
+  const configLoader = dir ? new ConfigLoader(dir + '/.pulselive.yml') : new ConfigLoader();
+  const config = configLoader.autoDetect(workingDir);
+  const scanner = new Scanner(config, workingDir);
+  const reporter = new Reporter(!options.json);
+
+  const results: CheckResult[] = await scanner.runQuickChecks();
+  const totalDuration = Date.now() - startTime;
+  
+  return { results, duration: totalDuration };
+}
+
+export function formatQuickOutput(
+  results: CheckResult[],
+  duration: number,
+  options: { json?: boolean },
+  deps: CLIDeps = defaultCLIDeps
+): void {
+  const reporter = new Reporter(!options.json);
+  
+  if (options.json) {
+    deps.log(JSON.stringify({
+      schema_version: "1.0.0",
+      schema_url: "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
+      version: VERSION,
+      timestamp: new Date().toISOString(),
+      quick: true,
+      duration: duration,
+      results: results.map(r => mapToSchemaResult(r))
+    }, null, 2));
+  } else {
+    deps.log(reporter.format(results));
+    deps.log(`\n⚡ Quick mode - deps and coverage skipped (${duration}ms)`);
+  }
+}
+
+export function handleQuickExitCodes(
+  results: CheckResult[],
+  options: { exitCode?: boolean },
+  deps: CLIDeps = defaultCLIDeps
+): void {
+  // Structured exit codes for quick command
+  if (options.exitCode) {
+    const hasErrors = results.some((r: CheckResult) => r.status === 'error');
+    const hasWarnings = results.some((r: CheckResult) => r.status === 'warning');
+    
+    if (hasErrors) {
+      deps.exit(1); // Critical issues found
+    } else if (hasWarnings) {
+      deps.exit(2); // Warnings only
+    } else {
+      deps.exit(0); // All checks healthy
+    }
+  }
+}
 
 export async function handleMultiRepoCheck(reposString: string, options: { json?: boolean; quick?: boolean; exitCode?: boolean }, deps: CLIDeps = defaultCLIDeps): Promise<void> {
   const repoList = reposString.split(',').map(r => r.trim()).filter(r => r.length > 0);
