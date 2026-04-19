@@ -351,7 +351,142 @@ The `--fail-on-error` flag provides backward compatibility (exit code 1 on error
 | No account required | ✅ | ✅ | ❌ |
 | Open source | ✅ (MIT) | ✅ | ❌ |
 
-## Automated Remediation: `pulselive fix`
+## OpenTelemetry Integration
+
+PulseLive supports OpenTelemetry (OTel) for exporting traces, metrics, and logs to observability backends like Jaeger, Prometheus, and Grafana.
+
+### Configuration
+
+Add OpenTelemetry configuration to your `.pulselive.yml`:
+
+```yaml
+otel:
+  enabled: true
+  protocol: http  # or 'file' for file-based export
+  service_name: my-pulselive-service
+  endpoint: http://localhost:4318  # OTLP endpoint (optional, defaults to http://localhost:4318)
+  export_dir: .pulselive/otel  # For file protocol (optional, defaults to .pulselive/otel)
+```
+
+### CLI Usage
+
+Enable OTel export with the `--otel` flag:
+
+```bash
+pulselive check --otel
+```
+
+Or configure it in your `.pulselive.yml`:
+
+```yaml
+otel:
+  enabled: true
+```
+
+### Export Protocols
+
+#### OTLP HTTP (Primary)
+
+Exports data to an OTLP-compatible endpoint (default: `http://localhost:4318`):
+
+- Traces: `/v1/traces`
+- Metrics: `/v1/metrics`
+- Logs: `/v1/logs`
+
+#### File Export
+
+Writes NDJSON files to `.pulselive/otel/` directory:
+
+- `traces.jsonl` - Trace data
+- `metrics.jsonl` - Metrics data  
+- `logs.jsonl` - Log data
+
+### Traces
+
+PulseLive creates detailed traces for each check:
+
+- **Root span**: `pulselive.check` with total duration and summary attributes
+- **Child spans**: `pulselive.check.{type}` for each check type with attributes:
+  - `pulselive.check_type`
+  - `pulselive.severity`
+  - `pulselive.confidence`
+  - `pulselive.status`
+  - `pulselive.actionable`
+  - `pulselive.duration_ms`
+
+### Metrics
+
+PulseLive exports the following metrics:
+
+- `pulselive.health.score` - Gauge (0-100) per check type
+- `pulselive.anomalies.total` - Counter of detected anomalies
+- `pulselive.deps.vulnerable` - Counter of vulnerable dependencies
+- `pulselive.deps.outdated` - Counter of outdated dependencies
+- `pulselive.issues.open` - Counter of open issues
+- `pulselive.ci.flakiness_score` - Gauge of CI flakiness
+
+### Logs
+
+Structured logs are emitted for:
+
+- Anomaly events
+- Degrading trends
+- Flaky CI detection
+
+### MCP Tool: pulselive_telemetry
+
+Get current OTel configuration and status:
+
+```bash
+# Summary format
+pulselive mcp-stdio --tool pulselive_telemetry --format summary
+
+# Full format  
+pulselive mcp-stdio --tool pulselive_telemetry --format full
+```
+
+### Example Setup with Grafana
+
+1. **Run OTel Collector**:
+   ```bash
+   docker run -p 4318:4318 otel/opentelemetry-collector
+   ```
+
+2. **Configure PulseLive**:
+   ```yaml
+   otel:
+     enabled: true
+     protocol: http
+     endpoint: http://localhost:4318
+     service_name: pulselive
+   ```
+
+3. **Run checks with OTel export**:
+   ```bash
+   pulselive check --otel
+   ```
+
+4. **Visualize in Grafana**:
+   - Import OTel data source
+   - Create dashboards for PulseLive metrics
+   - Set up alerts for anomalies
+
+### Installation
+
+OpenTelemetry dependencies are optional:
+
+```bash
+npm install @opentelemetry/api @opentelemetry/sdk-node \
+  @opentelemetry/exporter-trace-otlp-http \
+  @opentelemetry/exporter-metrics-otlp-http \
+  @opentelemetry/resources \
+  @opentelemetry/sdk-trace-node \
+  @opentelemetry/sdk-metrics \
+  @opentelemetry/semantic-conventions
+```
+
+If dependencies are not installed, OTel features are silently disabled.
+
 
 The `fix` command provides automated remediation for common issues:
 

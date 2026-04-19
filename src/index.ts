@@ -61,6 +61,7 @@ program
   .option('--include-trends', 'Include trend analysis in JSON output')
   .option('--quick', 'Quick triage - skip deps and coverage for ~2s response')
   .option('--repos <repos>', 'Check multiple repositories (format: owner/repo1,owner/repo2)')
+  .option('--otel', 'Enable OpenTelemetry export for this run')
   .action(async (dir, options) => {
     if (options.repos) {
       // Multi-repo mode
@@ -102,6 +103,7 @@ program
   .argument('[dir]', 'Directory to check (defaults to current directory)')
   .option('--json', 'Output results as JSON')
   .option('--repos <repos>', 'Check multiple repositories (format: owner/repo1,owner/repo2)')
+  .option('--otel', 'Enable OpenTelemetry export for this run')
   .action(async (dir, options) => {
     if (options.repos) {
       // Multi-repo mode

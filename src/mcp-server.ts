@@ -68,6 +68,7 @@ export class MCPServer {
         let includeTrends: boolean = false;
         let checkType: string | undefined = undefined;
         let window: number = 7;
+        let format: string = 'summary';
 
         if (req.method === 'POST') {
           // Parse JSON body for POST requests
@@ -85,6 +86,7 @@ export class MCPServer {
               includeTrends = jsonBody.include_trends === true;
               checkType = jsonBody.check_type;
               window = parseInt(jsonBody.window) || 7;
+              format = jsonBody.format || 'summary';
             } catch (parseError) {
               res.writeHead(400, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Invalid JSON body' }));
@@ -105,6 +107,7 @@ export class MCPServer {
           includeTrends = url.searchParams.get('include_trends') === 'true';
           checkType = url.searchParams.get('check_type') || undefined;
           window = parseInt(url.searchParams.get('window') || '7') || 7;
+          format = url.searchParams.get('format') || 'summary';
         } else {
           res.writeHead(405, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Method Not Allowed - use GET or POST' }));
@@ -137,7 +140,7 @@ export class MCPServer {
           }
         }
 
-        const result = await this.handleToolRequest(tool, dir, { includeTrends, checkType, window });
+        const result = await this.handleToolRequest(tool, dir, { includeTrends, checkType, window, format });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
         this.logMCPUsage(tool, toolStartTime, 'success');
@@ -193,6 +196,7 @@ export class MCPServer {
     checkType?: string;
     window?: number;
     repos?: string;
+    format?: string;
   }): Promise<any> {
     const scanner = this.getScanner(dir);
     const history = this.loadHistory();
@@ -223,8 +227,8 @@ export class MCPServer {
         return this.pulseliveAnomalies(history, trendAnalyzer);
       case 'pulselive_metrics':
         return this.pulseliveMetrics(history, trendAnalyzer, params?.checkType);
-      case 'pulselive_status':
-        return this.pulseliveStatus(dir);
+      case 'pulselive_telemetry':
+        return this.pulseliveTelemetry(params?.format);
       default:
         throw new Error('Unknown tool');
     }
@@ -446,6 +450,57 @@ export class MCPServer {
       };
     }
     return { available: true, metrics };
+  }
+
+  private pulseliveTelemetry(format: string = 'summary'): any {
+    // Check if OTel is available
+    let otelAvailable = false;
+    let otelConfig = null;
+    
+    try {
+      const { isOtelAvailable } = require('./otel');
+      otelAvailable = isOtelAvailable();
+      
+      // Get config to extract OTel settings
+      const configLoader = new ConfigLoader();
+      const config = configLoader.getConfig();
+      otelConfig = config.otel || {};
+    } catch (error) {
+      // OTel module not available or error loading
+      otelAvailable = false;
+    }
+
+    if (format === 'summary') {
+      return {
+        schema_version: "1.0.0",
+        schema_url: "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
+        version: VERSION,
+        timestamp: new Date().toISOString(),
+        otel_available: otelAvailable,
+        otel_enabled: otelConfig?.enabled === true,
+        otel_protocol: otelConfig?.protocol || 'http',
+        otel_service_name: otelConfig?.service_name || 'pulselive',
+        otel_endpoint: otelConfig?.endpoint || process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318'
+      };
+    } else {
+      // Full format
+      return {
+        schema_version: "1.0.0",
+        schema_url: "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
+        version: VERSION,
+        timestamp: new Date().toISOString(),
+        otel: {
+          available: otelAvailable,
+          enabled: otelConfig?.enabled === true,
+          protocol: otelConfig?.protocol || 'http',
+          service_name: otelConfig?.service_name || 'pulselive',
+          endpoint: otelConfig?.endpoint || process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318',
+          export_dir: otelConfig?.export_dir || normalize(process.cwd() + '/.pulselive/otel'),
+          last_export: otelAvailable ? 'Recent export completed' : 'Not available',
+          status: otelAvailable ? (otelConfig?.enabled === true ? 'active' : 'disabled') : 'not_installed'
+        }
+      };
+    }
   }
 
   private async pulseliveStatus(

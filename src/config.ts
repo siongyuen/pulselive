@@ -45,6 +45,13 @@ export interface PulseliveConfig {
     };
   };
   webhooks?: WebhookConfig[];
+  otel?: {
+    enabled?: boolean;
+    endpoint?: string;
+    protocol?: 'http' | 'file';
+    service_name?: string;
+    export_dir?: string;
+  };
 }
 
 export class ConfigLoader {

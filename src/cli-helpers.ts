@@ -607,14 +607,27 @@ export async function runSingleRepoCheck(
     verbose?: boolean; 
     quick?: boolean; 
     includeTrends?: boolean;
-    compare?: boolean
+    compare?: boolean;
+    otel?: boolean;
   },
   deps: CLIDeps = defaultCLIDeps
 ): Promise<{ results: CheckResult[]; duration: number; config: PulseliveConfig; workingDir: string }> {
   const startTime = Date.now();
   const workingDir = dir || deps.cwd();
   const configLoader = dir ? new ConfigLoader(dir + '/.pulselive.yml') : new ConfigLoader();
-  const config = configLoader.autoDetect(workingDir);
+  
+  // Handle OTel flag - override config if --otel is specified
+  let config = configLoader.autoDetect(workingDir);
+  if (options.otel !== undefined) {
+    config = {
+      ...config,
+      otel: {
+        ...config.otel,
+        enabled: options.otel
+      }
+    };
+  }
+  
   const scanner = new Scanner(config, workingDir);
   
   const results: CheckResult[] = options.quick ? await scanner.runQuickChecks() : await scanner.runAllChecks();
@@ -804,7 +817,7 @@ export function handleFixExitCodes(
 
 export async function runQuickCheck(
   dir: string | undefined,
-  options: { json?: boolean; repos?: string },
+  options: { json?: boolean; repos?: string; otel?: boolean },
   deps: CLIDeps = defaultCLIDeps
 ): Promise<{ results: CheckResult[]; duration: number }> {
   if (options.repos) {
@@ -815,7 +828,19 @@ export async function runQuickCheck(
   const startTime = Date.now();
   const workingDir = dir || deps.cwd();
   const configLoader = dir ? new ConfigLoader(dir + '/.pulselive.yml') : new ConfigLoader();
-  const config = configLoader.autoDetect(workingDir);
+  
+  // Handle OTel flag - override config if --otel is specified
+  let config = configLoader.autoDetect(workingDir);
+  if (options.otel !== undefined) {
+    config = {
+      ...config,
+      otel: {
+        ...config.otel,
+        enabled: options.otel
+      }
+    };
+  }
+  
   const scanner = new Scanner(config, workingDir);
   const reporter = new Reporter(!options.json);
 
@@ -869,7 +894,7 @@ export function handleQuickExitCodes(
   }
 }
 
-export async function handleMultiRepoCheck(reposString: string, options: { json?: boolean; quick?: boolean; exitCode?: boolean }, deps: CLIDeps = defaultCLIDeps): Promise<void> {
+export async function handleMultiRepoCheck(reposString: string, options: { json?: boolean; quick?: boolean; exitCode?: boolean; otel?: boolean }, deps: CLIDeps = defaultCLIDeps): Promise<void> {
   const repoList = reposString.split(',').map(r => r.trim()).filter(r => r.length > 0);
   
   if (repoList.length === 0) {
@@ -902,7 +927,8 @@ export async function handleMultiRepoCheck(reposString: string, options: { json?
           prs: true,
           deploy: true,
           coverage: !options.quick ? { enabled: true, threshold: 80 } : { enabled: false }
-        }
+        },
+        otel: options.otel !== undefined ? { enabled: options.otel } : undefined
       };
       
       const scanner = new Scanner(tempConfig);

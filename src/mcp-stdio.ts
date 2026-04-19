@@ -169,21 +169,19 @@ const TOOLS = [
     }
   },
   {
-    name: 'pulselive_metrics',
-    description: 'Get detailed metrics for all or a specific check type, including trend analysis and historical data.',
+    name: 'pulselive_telemetry',
+    description: 'Get current OpenTelemetry configuration status and last export info. Returns OTel configuration, service name, endpoint, protocol, and export status.',
     inputSchema: {
       type: 'object',
       properties: {
-        dir: {
+        format: {
           type: 'string',
-          description: 'Absolute path to the project directory. Defaults to cwd.'
-        },
-        check_type: {
-          type: 'string',
-          description: 'Specific check type. Omit for all types.',
-          enum: ['ci', 'deploy', 'health', 'git', 'issues', 'prs', 'coverage', 'deps']
+          description: 'Output format (summary or full)',
+          enum: ['summary', 'full'],
+          default: 'summary'
         }
-      }
+      },
+      estimated_duration_ms: 100
     }
   },
   {

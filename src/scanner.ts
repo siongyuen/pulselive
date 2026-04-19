@@ -8,6 +8,7 @@ import { DepsCheck } from './checks/deps';
 import { CoverageCheck } from './checks/coverage';
 import { PRsCheck } from './checks/prs';
 import { WebhookNotifier } from './webhooks';
+import { initOtel, withOtelSpan, exportResults, shutdownOtel } from './otel';
 
 export interface CheckResult {
   type: string;
@@ -45,10 +46,12 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2): Promi
 export class Scanner {
   private config: PulseliveConfig;
   private workingDir: string;
+  private otelEnabled: boolean;
 
   constructor(config: PulseliveConfig, workingDir: string = process.cwd()) {
     this.config = config;
     this.workingDir = workingDir;
+    this.otelEnabled = initOtel(config);
   }
 
   async runAllChecks(): Promise<CheckResult[]> {
@@ -69,7 +72,7 @@ export class Scanner {
       if (!check.enabled) continue;
       const startTime = Date.now();
       try {
-        const result = await check.run();
+        const result = await (this.otelEnabled ? withOtelSpan(check.type, check.run) : check.run());
         result.duration = Date.now() - startTime;
         results.push(result);
       } catch (error) {
@@ -80,6 +83,11 @@ export class Scanner {
           duration: Date.now() - startTime
         });
       }
+    }
+
+    // Export results to OpenTelemetry if enabled
+    if (this.otelEnabled) {
+      exportResults(results);
     }
 
     // Fire webhook notifications (non-blocking)
@@ -117,31 +125,37 @@ export class Scanner {
 
     switch (checkType) {
       case 'ci':
-        result = await retryableCheck(() => new CICheck(this.config).run());
+        result = await (this.otelEnabled ? withOtelSpan(checkType, () => retryableCheck(() => new CICheck(this.config).run())) : retryableCheck(() => new CICheck(this.config).run()));
         break;
       case 'deploy':
-        result = await retryableCheck(() => new DeployCheck(this.config).run());
+        result = await (this.otelEnabled ? withOtelSpan(checkType, () => retryableCheck(() => new DeployCheck(this.config).run())) : retryableCheck(() => new DeployCheck(this.config).run()));
         break;
       case 'health':
-        result = await new HealthCheck(this.config).run();
+        result = await (this.otelEnabled ? withOtelSpan(checkType, () => new HealthCheck(this.config).run()) : new HealthCheck(this.config).run());
         break;
       case 'git':
-        result = await new GitCheck(this.config, this.workingDir).run();
+        result = await (this.otelEnabled ? withOtelSpan(checkType, () => new GitCheck(this.config, this.workingDir).run()) : new GitCheck(this.config, this.workingDir).run());
         break;
       case 'issues':
-        result = await retryableCheck(() => new IssuesCheck(this.config).run());
+        result = await (this.otelEnabled ? withOtelSpan(checkType, () => retryableCheck(() => new IssuesCheck(this.config).run())) : retryableCheck(() => new IssuesCheck(this.config).run()));
         break;
       case 'prs':
-        result = await retryableCheck(() => new PRsCheck(this.config).run());
+        result = await (this.otelEnabled ? withOtelSpan(checkType, () => retryableCheck(() => new PRsCheck(this.config).run())) : retryableCheck(() => new PRsCheck(this.config).run()));
         break;
       case 'coverage':
-        result = await new CoverageCheck(this.config).run();
+        result = await (this.otelEnabled ? withOtelSpan(checkType, () => new CoverageCheck(this.config).run()) : new CoverageCheck(this.config).run());
         break;
       default:
         result = { type: checkType, status: 'error', message: `Unknown check type: ${checkType}` };
     }
 
     result.duration = Date.now() - startTime;
+    
+    // Export single check result if OTel is enabled
+    if (this.otelEnabled) {
+      exportResults([result]);
+    }
+    
     return result;
   }
 
@@ -166,7 +180,7 @@ export class Scanner {
       if (!check.enabled) continue;
       const startTime = Date.now();
       try {
-        const result = await check.run();
+        const result = await (this.otelEnabled ? withOtelSpan(check.type, check.run) : check.run());
         result.duration = Date.now() - startTime;
         results.push(result);
       } catch (error) {
@@ -194,6 +208,11 @@ export class Scanner {
           duration: 0
         });
       }
+    }
+
+    // Export results to OpenTelemetry if enabled
+    if (this.otelEnabled) {
+      exportResults(results);
     }
 
     return results;
