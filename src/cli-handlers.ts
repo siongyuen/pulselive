@@ -176,7 +176,11 @@ export class CLIHandlers {
         coverage: { enabled: true, threshold: 80 },
         sentry: true
       },
-      webhooks: [] as Array<{ url: string; events: string[]; secret?: string }>
+      webhooks: [] as Array<{ url: string; events: string[]; secret?: string }>,
+      sentry: {
+        organization: '',
+        project: ''
+      }
     };
 
     this.deps.writeFile('.pulselive.yml', yaml.stringify(defaultConfig));
