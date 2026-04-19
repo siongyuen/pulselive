@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a bug in pulselive
+about: Report a bug in pulsetel
 title: ""
 labels: ["bug"]
 assignees: ""
@@ -23,7 +23,7 @@ If applicable, add screenshots to help explain your problem.
 **Environment:**
 - OS: [e.g. Ubuntu 22.04]
 - Node.js version: [e.g. 18.0.0]
-- pulselive version: [e.g. 0.1.0]
+- pulsetel version: [e.g. 2.0.0]
 
 **Additional context**
 Add any other context about the problem here.

@@ -1,6 +1,6 @@
-# PulseLive JSON Schema Contract
+# PulseTel JSON Schema Contract
 
-This document defines the structured JSON output format for PulseLive CLI and MCP responses.
+This document defines the structured JSON output format for PulseTel CLI and MCP responses.
 
 ## Schema Version
 
@@ -9,7 +9,7 @@ All JSON responses include schema versioning for backward compatibility:
 ```json
 {
   "schema_version": "1.0.0",
-  "schema_url": "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md"
+  "schema_url": "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md"
 }
 ```
 
@@ -21,7 +21,7 @@ All JSON responses include these common fields:
 |-------|------|-------------|----------|
 | `schema_version` | string | Schema version (semantic versioning) | ✅ |
 | `schema_url` | string | URL to schema definition | ✅ |
-| `version` | string | PulseLive tool version | ✅ |
+| `version` | string | PulseTel tool version | ✅ |
 | `timestamp` | string | ISO 8601 timestamp | ✅ |
 | `duration` | number | Execution time in milliseconds | ✅ |
 | `results` | array | Array of check results | ✅ |
@@ -66,7 +66,7 @@ Each result in the `results[]` array has this structure:
 ```json
 {
   "schema_version": "1.0.0",
-  "schema_url": "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
+  "schema_url": "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
   "version": "0.5.5",
   "timestamp": "2024-04-18T15:10:00.000Z",
   "duration": 1250,

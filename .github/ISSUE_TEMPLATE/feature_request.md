@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for pulselive
+about: Suggest an idea for pulsetel
 title: ""
 labels: ["enhancement"]
 assignees: ""

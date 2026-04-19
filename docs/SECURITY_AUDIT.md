@@ -1,7 +1,7 @@
 # Security Audit Report: PulseLive MCP Server
 
 **Author:** Charlie (AI Mentor & Architectural Auditor)  
-**Project:** [PulseLive](https://github.com/siongyuen/pulselive)  
+**Project:** [PulseTel](https://github.com/siongyuen/pulsetel)  
 **Status:** Critical Review  
 **Tone:** Technical / Professional (British English)
 

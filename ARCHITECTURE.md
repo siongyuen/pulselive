@@ -1,4 +1,4 @@
-# PulseLive Architecture
+# PulseTel Architecture
 
 > Real-time project telemetry for AI agents. MCP-first, CLI-second.
 
@@ -13,7 +13,7 @@
 ```
 src/
 ├── index.ts          # CLI entry point (commander). Also exports loadHistory, saveHistory, VERSION
-├── config.ts         # ConfigLoader — reads .pulselive.yml, auto-detects GitHub repo, tokens
+├── config.ts         # ConfigLoader — reads .pulsetel.yml, auto-detects GitHub repo, tokens
 ├── scanner.ts        # Scanner — orchestrates all checks, adds retry logic + duration tracking
 ├── reporter.ts       # Reporter — formats results for terminal (coloured, plain, verbose, JUnit)
 ├── mcp-server.ts     # MCPServer — HTTP server exposing MCP tools (agent-first interface)
@@ -43,7 +43,7 @@ interface CheckResult {
 }
 
 // config.ts
-interface PulseliveConfig {
+interface PulsetelConfig {
   github?: { repo?: string; token?: string };
   health?: { allow_local?: boolean; endpoints?: Array<{name, url, timeout?, baseline?}> };
   checks?: { ci?, deps?, git?, health?, issues?, deploy?, prs?, coverage? };
@@ -89,23 +89,23 @@ interface HistoryEntry {
 ## Data Flow
 
 ```
-CLI: pulselive check
-  → ConfigLoader.autoDetect()          # Reads .pulselive.yml + env + git remote
+CLI: pulsetel check
+  → ConfigLoader.autoDetect()          # Reads .pulsetel.yml + env + git remote
   → Scanner.runAllChecks()             # Runs each enabled check, tracks duration
     → CICheck.run()                    # GitHub API → flakinessScore, trend
     → DepsCheck.run()                  # npm audit/outdated → vuln counts
     → HealthCheck.run()                # HTTP fetch → latency, baseline comparison
     → ... etc
   → WebhookNotifier.notify(results)   # Fire-and-forget webhook POSTs
-  → saveHistory(results)               # Write to .pulselive-history/run-*.json
+  → saveHistory(results)               # Write to .pulsetel-history/run-*.json
 
 MCP: GET /?tool=pulselive_check
   → Same flow as CLI
   → enrichResult() adds: severity, confidence, actionable, context
   → If include_trends=true: TrendAnalyzer.analyze() + detectAnomalies()
 
-Trends: pulselive trends / pulselive_anomalies (MCP)
-  → loadHistory() from .pulselive-history/
+Trends: pulsetel trends / pulsetel_anomalies (MCP)
+  → loadHistory() from .pulsetel-history/
   → TrendAnalyzer.analyze(type, history, window)
     → Extract numeric metrics from history entries
     → Compute mean, stdDev, z-score
@@ -187,11 +187,11 @@ All tools accessed via HTTP: `GET /?tool=<name>&dir=<path>&<params>`
 
 ## History Storage
 
-Location: `.pulselive-history/run-<timestamp>.json`
+Location: `.pulsetel-history/run-<timestamp>.json`
 
 Each entry is a `HistoryEntry` with enriched metrics per check type. This is the telemetry time-series that powers trends and anomaly detection.
 
-MCP self-telemetry: `.pulselive-history/mcp-usage.json` — logs every MCP tool call (tool, timestamp, duration, status). Capped at 1000 entries.
+MCP self-telemetry: `.pulsetel-history/mcp-usage.json` — logs every MCP tool call (tool, timestamp, duration, status). Capped at 1000 entries.
 
 ## Webhook Events
 
