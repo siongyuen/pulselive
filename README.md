@@ -27,10 +27,10 @@ PulseTel fills the gap. One call gives you the full picture: what's broken, what
 ## Installation
 
 ```bash
-npx pulselive-cli check
+npx pulsetel-cli check
 # or install globally
-npm install -g pulselive-cli
-pulselive check
+npm install -g pulsetel-cli
+pulsetel check
 ```
 
 ## Quick Start
@@ -39,15 +39,15 @@ pulselive check
 
 ```bash
 cd your-project
-pulselive init
+pulsetel init
 ```
 
-Creates `.pulselive.yml` with auto-detected GitHub repo, language, and health endpoints.
+Creates `.pulsetel.yml` with auto-detected GitHub repo, language, and health endpoints.
 
 ### 2. Run a check
 
 ```bash
-pulselive check
+pulsetel check
 ```
 
 ```
@@ -66,11 +66,11 @@ pulselive check
 
 ### 3. Track trends over time
 
-Every `pulselive check` saves a history entry. After a few runs:
+Every `pulsetel check` saves a history entry. After a few runs:
 
 ```bash
-pulselive trends
-pulselive anomalies
+pulsetel trends
+pulsetel anomalies
 ```
 
 ```
@@ -87,7 +87,7 @@ The primary interface for AI agents. Two transport modes:
 ### stdio Transport (Claude Desktop, Cursor, Smithery)
 
 ```bash
-pulselive mcp-stdio
+pulsetel mcp-stdio
 ```
 
 Add to your `claude_desktop_config.json`:
@@ -108,7 +108,7 @@ Or for Cursor — same config in `.cursor/mcp.json`.
 ### HTTP Transport
 
 ```bash
-pulselive mcp
+pulsetel mcp
 ```
 
 Starts an HTTP server on port 3000.
@@ -189,60 +189,60 @@ Every response includes structured, actionable data:
 
 ```bash
 # Basic check
-pulselive check
+pulsetel check
 
 # JSON output (for scripts and agents)
-pulselive check --json
+pulsetel check --json
 
 # Include trends in JSON
-pulselive check --json --include-trends
+pulsetel check --json --include-trends
 
 # JUnit XML (for CI/CD pipelines)
-pulselive check --junit
+pulsetel check --junit
 
 # Exit 1 on critical (CI gating)
-pulselive check --fail-on-error
+pulsetel check --fail-on-error
 
 # Structured exit codes (0=healthy, 1=critical, 2=warnings, 3=partial)
-pulselive check --exit-code
+pulsetel check --exit-code
 
 # Verbose output with timing
-pulselive check --verbose
+pulsetel check --verbose
 
 # Compare with previous run
-pulselive check --compare
+pulsetel check --compare
 
 # Trend analysis
-pulselive trends
-pulselive trends --type deps --window 14
-pulselive trends --json
+pulsetel trends
+pulsetel trends --type deps --window 14
+pulsetel trends --json
 
 # Anomaly detection
-pulselive anomalies
-pulselive anomalies --json
+pulsetel anomalies
+pulsetel anomalies --json
 
 # Run history
-pulselive history --limit 20 --json
+pulsetel history --limit 20 --json
 
 # Initialise config
-pulselive init
+pulsetel init
 
 # Start MCP server (HTTP)
-pulselive mcp
+pulsetel mcp
 
 # Start MCP stdio transport (Claude Desktop / Cursor)
-pulselive mcp-stdio
+pulsetel mcp-stdio
 
 # Automated remediation
-pulselive fix --deps --dry-run          # Show what would be fixed
-pulselive fix --deps                    # Actually fix vulnerabilities
-pulselive fix --deps --json             # JSON output for automation
-pulselive fix --all                     # Run all available fixes
+pulsetel fix --deps --dry-run          # Show what would be fixed
+pulsetel fix --deps                    # Actually fix vulnerabilities
+pulsetel fix --deps --json             # JSON output for automation
+pulsetel fix --all                     # Run all available fixes
 ```
 
 ## Configuration
 
-`.pulselive.yml`:
+`.pulsetel.yml`:
 
 ```yaml
 github:
@@ -272,7 +272,7 @@ checks:
       provider: codecov
 
 webhooks:
-  - url: https://hooks.example.com/pulselive
+  - url: https://hooks.example.com/pulsetel
     events: [anomaly, degrading, flaky, critical]
     secret: optional-hmac-secret
 
@@ -309,7 +309,7 @@ Webhooks are HMAC-SHA256 signed when a secret is configured. Payload includes `e
 
 ## Test Coverage
 
-PulseLive has **638 tests** across **38 test files** with **81.5% statement coverage** and **85.7% function coverage**. All check modules use dependency injection for testability — no module-level mocking.
+PulseTel has **638 tests** across **38 test files** with **81.5% statement coverage** and **85.7% function coverage**. All check modules use dependency injection for testability — no module-level mocking.
 
 | Module | Statements | Functions | Lines |
 |--------|-----------|----------|-------|
@@ -334,7 +334,7 @@ Run tests: `npx vitest run` · Coverage report: `npx vitest run --coverage`
 
 ## Structured Exit Codes
 
-PulseLive provides deterministic exit codes for CI/CD integration:
+PulseTel provides deterministic exit codes for CI/CD integration:
 
 | Exit Code | Meaning | Trigger |
 |-----------|---------|---------|
@@ -347,16 +347,16 @@ Enable structured exit codes with `--exit-code`:
 
 ```bash
 # Opt-in structured exit codes
-pulselive check --exit-code
+pulsetel check --exit-code
 
 # Exit code 0: All healthy
-pulselive check --exit-code && echo "All checks passed"
+pulsetel check --exit-code && echo "All checks passed"
 
 # Exit code 1: Critical issues
-pulselive check --exit-code || echo "Critical issues found: $?"
+pulsetel check --exit-code || echo "Critical issues found: $?"
 
 # Exit code 2: Warnings only
-pulselive check --exit-code
+pulsetel check --exit-code
 exit_code=$?
 if [ $exit_code -eq 2 ]; then
   echo "Warnings found but no critical issues"
@@ -365,7 +365,7 @@ fi
 
 The `--fail-on-error` flag provides backward compatibility (exit code 1 on errors only).
 
-| Feature | PulseLive | GitHub MCP Server | Datadog MCP |
+| Feature | PulseTel | GitHub MCP Server | Datadog MCP |
 |---------|-----------|-------------------|-------------|
 | Single-call health check | ✅ | ❌ (5+ calls) | ❌ (paid) |
 | Agent-first responses | ✅ | ❌ (raw data) | ❌ (dashboards) |
@@ -381,19 +381,19 @@ The `--fail-on-error` flag provides backward compatibility (exit code 1 on error
 
 ## OpenTelemetry Integration
 
-PulseLive supports OpenTelemetry (OTel) for exporting traces, metrics, and logs to observability backends like Jaeger, Prometheus, and Grafana.
+PulseTel supports OpenTelemetry (OTel) for exporting traces, metrics, and logs to observability backends like Jaeger, Prometheus, and Grafana.
 
 ### Configuration
 
-Add OpenTelemetry configuration to your `.pulselive.yml`:
+Add OpenTelemetry configuration to your `.pulsetel.yml`:
 
 ```yaml
 otel:
   enabled: true
   protocol: http  # or 'file' for file-based export
-  service_name: my-pulselive-service
+  service_name: my-pulsetel-service
   endpoint: http://localhost:4318  # OTLP endpoint (optional, defaults to http://localhost:4318)
-  export_dir: .pulselive/otel  # For file protocol (optional, defaults to .pulselive/otel)
+  export_dir: .pulsetel/otel  # For file protocol (optional, defaults to .pulsetel/otel)
 ```
 
 ### CLI Usage
@@ -401,10 +401,10 @@ otel:
 Enable OTel export with the `--otel` flag:
 
 ```bash
-pulselive check --otel
+pulsetel check --otel
 ```
 
-Or configure it in your `.pulselive.yml`:
+Or configure it in your `.pulsetel.yml`:
 
 ```yaml
 otel:
@@ -423,7 +423,7 @@ Exports data to an OTLP-compatible endpoint (default: `http://localhost:4318`):
 
 #### File Export
 
-Writes NDJSON files to `.pulselive/otel/` directory:
+Writes NDJSON files to `.pulsetel/otel/` directory:
 
 - `traces.jsonl` - Trace data
 - `metrics.jsonl` - Metrics data  
@@ -431,7 +431,7 @@ Writes NDJSON files to `.pulselive/otel/` directory:
 
 ### Traces
 
-PulseLive creates detailed traces for each check:
+PulseTel creates detailed traces for each check:
 
 - **Root span**: `pulselive.check` with total duration and summary attributes
 - **Child spans**: `pulselive.check.{type}` for each check type with attributes:
@@ -444,7 +444,7 @@ PulseLive creates detailed traces for each check:
 
 ### Metrics
 
-PulseLive exports the following metrics:
+PulseTel exports the following metrics:
 
 - `pulselive.health.score` - Gauge (0-100) per check type
 - `pulselive.anomalies.total` - Counter of detected anomalies
@@ -480,23 +480,23 @@ pulselive mcp-stdio --tool pulselive_telemetry --format full
    docker run -p 4318:4318 otel/opentelemetry-collector
    ```
 
-2. **Configure PulseLive**:
+2. **Configure PulseTel**:
    ```yaml
    otel:
      enabled: true
      protocol: http
      endpoint: http://localhost:4318
-     service_name: pulselive
+     service_name: pulsetel
    ```
 
 3. **Run checks with OTel export**:
    ```bash
-   pulselive check --otel
+   pulsetel check --otel
    ```
 
 4. **Visualize in Grafana**:
    - Import OTel data source
-   - Create dashboards for PulseLive metrics
+   - Create dashboards for PulseTel metrics
    - Set up alerts for anomalies
 
 ### Installation
@@ -522,16 +522,16 @@ The `fix` command provides automated remediation for common issues:
 
 ```bash
 # Dry run - show what would be fixed
-pulselive fix --deps --dry-run
+pulsetel fix --deps --dry-run
 
 # Actually fix vulnerabilities
-pulselive fix --deps
+pulsetel fix --deps
 
 # Skip confirmation prompts
-pulselive fix --deps --yes
+pulsetel fix --deps --yes
 
 # JSON output for automation
-pulselive fix --deps --json
+pulsetel fix --deps --json
 ```
 
 ### Fix Command Features
@@ -547,7 +547,7 @@ pulselive fix --deps --json
 ```json
 {
   "schema_version": "1.0.0",
-  "schema_url": "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
+  "schema_url": "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
   "version": "0.5.0",
   "timestamp": "2024-04-18T15:00:00.000Z",
   "duration": 1250,
@@ -586,11 +586,11 @@ Future targets (planned):
 
 ## Sentry Error Tracking
 
-PulseLive integrates with [Sentry](https://sentry.io) for production error tracking. The Sentry check queries the Sentry API for unresolved issues and returns a structured report with actionable recommendations.
+PulseTel integrates with [Sentry](https://sentry.io) for production error tracking. The Sentry check queries the Sentry API for unresolved issues and returns a structured report with actionable recommendations.
 
 ### Configuration
 
-Add to your `.pulselive.yml`:
+Add to your `.pulsetel.yml`:
 
 ```yaml
 sentry:
