@@ -1,6 +1,5 @@
 github:
   repo: openclaw/openclaw
-  token: ""
 health:
   allow_local: false
   endpoints:
