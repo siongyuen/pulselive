@@ -1,17 +1,17 @@
-# PulseLive
+# PulseTel
 
 **Real-time project telemetry for AI agents and developers. One command to check CI, deploys, endpoints, dependencies, and issues — with trend analysis and anomaly detection.**
 
-[![npm version](https://img.shields.io/npm/v/pulselive-cli.svg)](https://www.npmjs.com/package/pulselive-cli) [![Test Coverage](https://img.shields.io/badge/coverage-81%25%20statements-brightgreen)](https://github.com/siongyuen/pulselive) [![Tests](https://img.shields.io/badge/tests-638%20passing-brightgreen)](https://github.com/siongyuen/pulselive) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![npm version](https://img.shields.io/npm/v/pulselive-cli.svg)](https://www.npmjs.com/package/pulselive-cli) [![Test Coverage](https://img.shields.io/badge/coverage-81%25%20statements-brightgreen)](https://github.com/siongyuen/pulsetel) [![Tests](https://img.shields.io/badge/tests-638%20passing-brightgreen)](https://github.com/siongyuen/pulsetel) [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-## Why PulseLive?
+## Why PulseTel?
 
 If you're an AI agent trying to assess project health, you have two options today:
 
 1. **Raw API wrappers** — GitHub MCP Server, Datadog MCP. You make 5+ calls, parse different schemas, and piece together what's actually wrong. No prioritisation, no trends, no actionable output.
 2. **Enterprise platforms** — Datadog, New Relic, OneUptime. Comprehensive, but require paid accounts and don't speak agent-native.
 
-PulseLive fills the gap. One call gives you the full picture: what's broken, what's degrading, what to fix first — with severity, confidence, and context built into every response.
+PulseTel fills the gap. One call gives you the full picture: what's broken, what's degrading, what to fix first — with severity, confidence, and context built into every response.
 
 **For developers**, it's a CLI that runs 8 health checks, tracks trends over time, and alerts you via webhooks when things degrade. **For AI agents**, it's an MCP server with 9 tools that return structured, prioritised, actionable data — no interpretation required.
 
