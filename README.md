@@ -2,7 +2,7 @@
 
 **Real-time project telemetry for AI agents and developers. One command to check CI, deploys, endpoints, dependencies, and issues — with trend analysis and anomaly detection.**
 
-[![npm version](https://img.shields.io/npm/v/pulselive-cli.svg)](https://www.npmjs.com/package/pulselive-cli) [![Test Coverage](https://img.shields.io/badge/coverage-81%25%20statements-brightgreen)](https://github.com/siongyuen/pulselive) [![Tests](https://img.shields.io/badge/tests-620%20passing-brightgreen)](https://github.com/siongyuen/pulselive) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://img.shields.io/npm/v/pulselive-cli.svg)](https://www.npmjs.com/package/pulselive-cli) [![Test Coverage](https://img.shields.io/badge/coverage-81%25%20statements-brightgreen)](https://github.com/siongyuen/pulselive) [![Tests](https://img.shields.io/badge/tests-638%20passing-brightgreen)](https://github.com/siongyuen/pulselive) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 ## Why PulseLive?
 
@@ -275,9 +275,14 @@ webhooks:
   - url: https://hooks.example.com/pulselive
     events: [anomaly, degrading, flaky, critical]
     secret: optional-hmac-secret
+
+sentry:
+  organization: my-org
+  project: my-project
+  # token: use SENTRY_TOKEN env var instead
 ```
 
-## 8 Check Modules
+## 9 Check Modules
 
 | Check | What It Does | Key Metrics |
 |-------|-------------|------------|
@@ -289,6 +294,7 @@ webhooks:
 | **PRs** | GitHub Pull Requests | open, needsReview, conflicts, drafts |
 | **Git** | Branch, uncommitted, divergence from default | uncommitted files, ahead/behind |
 | **Deploy** | GitHub Deployments | status, environment |
+| **Sentry** | Sentry error tracking — unresolved issues, error rates, affected users | unresolved, totalEvents, affectedUsers, byLevel, topIssues, releases |
 
 ## Webhook Events
 
@@ -303,7 +309,7 @@ Webhooks are HMAC-SHA256 signed when a secret is configured. Payload includes `e
 
 ## Test Coverage
 
-PulseLive has **620 tests** across **37 test files** with **81.5% statement coverage** and **85.7% function coverage**. All check modules use dependency injection for testability — no module-level mocking.
+PulseLive has **638 tests** across **38 test files** with **81.5% statement coverage** and **85.7% function coverage**. All check modules use dependency injection for testability — no module-level mocking.
 
 | Module | Statements | Functions | Lines |
 |--------|-----------|----------|-------|
@@ -367,6 +373,8 @@ The `--fail-on-error` flag provides backward compatibility (exit code 1 on error
 | Trend analysis | ✅ | ❌ | ✅ |
 | Anomaly detection | ✅ | ❌ | ✅ |
 | Webhook alerts | ✅ | ❌ | ✅ |
+| Sentry error tracking | ✅ | ❌ | ❌ |
+| OpenTelemetry export | ✅ | ❌ | ✅ |
 | SSRF protection | ✅ | — | — |
 | No account required | ✅ | ✅ | ❌ |
 | Open source | ✅ (MIT) | ✅ | ❌ |
@@ -575,5 +583,84 @@ Future targets (planned):
 - `stale-branches`: Delete merged GitHub branches
 - `pr-cleanup`: Close stale pull requests
 - `issue-triage`: Auto-label and prioritize issues
+
+## Sentry Error Tracking
+
+PulseLive integrates with [Sentry](https://sentry.io) for production error tracking. The Sentry check queries the Sentry API for unresolved issues and returns a structured report with actionable recommendations.
+
+### Configuration
+
+Add to your `.pulselive.yml`:
+
+```yaml
+sentry:
+  organization: my-org
+  project: my-project
+  # token: prefer SENTRY_TOKEN env var instead
+```
+
+Set your Sentry auth token via environment variable:
+
+```bash
+export SENTRY_TOKEN=your-sentry-auth-token
+```
+
+The token needs `org:read` and `project:read` scopes.
+
+### MCP Tool: pulselive_sentry
+
+```bash
+# Via MCP HTTP
+GET /?tool=pulselive_sentry
+
+# Via MCP stdio (Claude Desktop, Cursor)
+# Automatically available when sentry is configured
+```
+
+### Response Format
+
+```json
+{
+  "type": "sentry",
+  "status": "warning",
+  "severity": "medium",
+  "confidence": "high",
+  "actionable": "Fix 2 critical errors first — Top issue: \"TypeError: Cannot read property\" (150 events, 25 users)",
+  "context": "5 unresolved issues tracked in Sentry with 5 total events",
+  "message": "5 unresolved issues in Sentry",
+  "details": {
+    "unresolved": 5,
+    "totalEvents": 200,
+    "affectedUsers": 35,
+    "byLevel": {
+      "fatal": 1,
+      "error": 2,
+      "warning": 2
+    },
+    "topIssues": [
+      {
+        "id": "12345",
+        "title": "TypeError: Cannot read property",
+        "level": "error",
+        "count": 150,
+        "platform": "javascript",
+        "users": 25,
+        "url": "https://sentry.io/organizations/my-org/issues/12345/"
+      }
+    ],
+    "releases": ["2.1.0", "2.0.1"]
+  }
+}
+```
+
+### Error Classification
+
+| Condition | Status | Severity |
+|-----------|--------|----------|
+| 10+ unresolved or 100+ event count | `error` | `critical` |
+| 5+ with fatal/error | `error` | `high` |
+| 3+ or any fatal/error | `warning` | `medium` |
+| 1-2 low-level issues | `warning` | `low` |
+| 0 unresolved | `success` | `low` |
 
 MIT
