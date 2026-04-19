@@ -1,12 +1,14 @@
 import { PulseliveConfig } from '../config';
 import { CheckResult } from '../scanner';
-import fetch from 'node-fetch';
+import { GitHubDeps, defaultGitHubDeps } from './github-deps';
 
 export class IssuesCheck {
   private config: PulseliveConfig;
+  private deps: GitHubDeps;
 
-  constructor(config: PulseliveConfig) {
+  constructor(config: PulseliveConfig, deps: GitHubDeps = defaultGitHubDeps) {
     this.config = config;
+    this.deps = deps;
   }
 
   async run(): Promise<CheckResult> {
@@ -30,7 +32,7 @@ export class IssuesCheck {
         };
       }
 
-      const response = await fetch(
+      const response = await this.deps.fetch(
         `https://api.github.com/repos/${repo}/issues?state=open&per_page=100`,
         {
           headers: {
@@ -54,7 +56,7 @@ export class IssuesCheck {
       // Try to get total open count from API (more accurate than page length)
       let totalOpen = issues.length;
       try {
-        const countResponse = await fetch(
+        const countResponse = await this.deps.fetch(
           `https://api.github.com/search/issues?q=repo:${repo}+is:issue+is:open`,
           {
             headers: {

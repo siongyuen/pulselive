@@ -5,24 +5,37 @@ import { existsSync } from 'fs';
 import path from 'path';
 
 /**
- * Safely execute an npm command using execFileSync to prevent shell injection.
- * execFileSync does not spawn a shell — arguments are passed directly to the binary.
+ * Dependency injection interface for DepsCheck.
+ * Allows injecting filesystem and process execution for testability.
  */
-function npmCmd(args: string[]): string {
-  return execFileSync('npm', args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+export interface DepsDeps {
+  execFile: (command: string, args: string[], options: any) => string;
+  existsSync: (path: string) => boolean;
 }
+
+/**
+ * Default implementation using real child_process and fs.
+ */
+export const defaultDepsDeps: DepsDeps = {
+  execFile: (cmd, args, opts) => {
+    return execFileSync(cmd, args, opts).toString();
+  },
+  existsSync: (p) => existsSync(p),
+};
 
 export class DepsCheck {
   private config: PulseliveConfig;
+  private deps: DepsDeps;
 
-  constructor(config: PulseliveConfig) {
+  constructor(config: PulseliveConfig, deps: DepsDeps = defaultDepsDeps) {
     this.config = config;
+    this.deps = deps;
   }
 
   async run(): Promise<CheckResult> {
     try {
       const packageJsonPath = path.join(process.cwd(), 'package.json');
-      const hasPackageJson = existsSync(packageJsonPath);
+      const hasPackageJson = this.deps.existsSync(packageJsonPath);
 
       if (!hasPackageJson) {
         // Try other package managers
@@ -36,7 +49,10 @@ export class DepsCheck {
       try {
         let auditData: any;
         try {
-          const auditOutput = npmCmd(['audit', '--json']);
+          const auditOutput = this.deps.execFile('npm', ['audit', '--json'], {
+            encoding: 'utf8',
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
           auditData = JSON.parse(auditOutput);
         } catch (error: any) {
           // npm audit exits 1 when vulnerabilities found, but still outputs valid JSON
@@ -65,7 +81,10 @@ export class DepsCheck {
       try {
         let outdatedData: any;
         try {
-          const outdatedOutput = npmCmd(['outdated', '--json']);
+          const outdatedOutput = this.deps.execFile('npm', ['outdated', '--json'], {
+            encoding: 'utf8',
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
           outdatedData = JSON.parse(outdatedOutput);
         } catch (error: any) {
           // npm outdated exits 1 when outdated packages found, but still outputs JSON
@@ -116,7 +135,10 @@ export class DepsCheck {
   private checkOtherPackageManagers(): CheckResult {
     // Try pip-audit
     try {
-      const output = execFileSync('pip-audit', ['--format', 'json'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+      const output = this.deps.execFile('pip-audit', ['--format', 'json'], {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      }).trim();
       return {
         type: 'deps',
         status: 'success',
@@ -146,7 +168,10 @@ export class DepsCheck {
 
     // Try govulncheck
     try {
-      execFileSync('govulncheck', ['./...'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+      this.deps.execFile('govulncheck', ['./...'], {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
       return {
         type: 'deps',
         status: 'success',

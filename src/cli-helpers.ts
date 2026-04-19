@@ -28,6 +28,10 @@ export interface CLIDeps {
   cwd: () => string;
 }
 
+export interface MultiRepoDeps extends CLIDeps {
+  createScanner?: (config: PulseliveConfig) => any;
+}
+
 export const defaultCLIDeps: CLIDeps = {
   exit: (code) => process.exit(code),
   log: (...args) => console.log(...args),
@@ -41,6 +45,11 @@ export const defaultCLIDeps: CLIDeps = {
     return execFileSync(cmd, args, opts).toString();
   },
   cwd: () => process.cwd(),
+};
+
+export const defaultMultiRepoDeps: MultiRepoDeps = {
+  ...defaultCLIDeps,
+  createScanner: (config: PulseliveConfig) => new Scanner(config)
 };
 
 
@@ -894,7 +903,7 @@ export function handleQuickExitCodes(
   }
 }
 
-export async function handleMultiRepoCheck(reposString: string, options: { json?: boolean; quick?: boolean; exitCode?: boolean; otel?: boolean }, deps: CLIDeps = defaultCLIDeps): Promise<void> {
+export async function handleMultiRepoCheck(reposString: string, options: { json?: boolean; quick?: boolean; exitCode?: boolean; otel?: boolean }, deps: MultiRepoDeps = defaultMultiRepoDeps): Promise<void> {
   const repoList = reposString.split(',').map(r => r.trim()).filter(r => r.length > 0);
   
   if (repoList.length === 0) {
@@ -931,7 +940,7 @@ export async function handleMultiRepoCheck(reposString: string, options: { json?
         otel: options.otel !== undefined ? { enabled: options.otel } : undefined
       };
       
-      const scanner = new Scanner(tempConfig);
+      const scanner = deps.createScanner ? deps.createScanner(tempConfig) : new Scanner(tempConfig);
       const checkResults: CheckResult[] = options.quick 
         ? await scanner.runQuickChecks()
         : await scanner.runAllChecks();

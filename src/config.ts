@@ -6,6 +6,20 @@ import path from 'path';
 const MAX_CONFIG_SIZE = 64 * 1024; // 64KB max config file size
 const GITHUB_REPO_PATTERN = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
 
+export interface ConfigLoaderDeps {
+  readFileSync: (path: string, encoding?: string) => string | Buffer;
+  statSync: (path: string) => { size: number };
+  execFileSync: (command: string, args: string[], options: any) => string;
+  existsSync: (path: string) => boolean;
+}
+
+export const defaultConfigLoaderDeps: ConfigLoaderDeps = {
+  readFileSync: (path: string, encoding?: string) => readFileSync(path, encoding as any),
+  statSync,
+  execFileSync,
+  existsSync: (path: string) => require('fs').existsSync(path)
+};
+
 export interface WebhookConfig {
   url: string;
   events: string[];  // 'anomaly' | 'degrading' | 'flaky' | 'critical'
@@ -57,9 +71,11 @@ export interface PulseliveConfig {
 export class ConfigLoader {
   private configPath: string;
   private config: PulseliveConfig;
+  private deps: ConfigLoaderDeps;
 
-  constructor(configPath: string = '.pulselive.yml') {
+  constructor(configPath: string = '.pulselive.yml', deps: ConfigLoaderDeps = defaultConfigLoaderDeps) {
     this.configPath = configPath;
+    this.deps = deps;
     this.config = this.loadConfig();
     
     // Validate the loaded configuration and print warnings to stderr
@@ -74,13 +90,16 @@ export class ConfigLoader {
   private loadConfig(): PulseliveConfig {
     try {
       // Enforce file size limit to prevent DoS via large YAML
-      const stats = statSync(this.configPath);
+      const stats = this.deps.statSync(this.configPath);
       if (stats.size > MAX_CONFIG_SIZE) {
         console.warn(`Config file exceeds ${MAX_CONFIG_SIZE / 1024}KB limit — ignoring`);
         return {};
       }
 
-      const configContent = readFileSync(this.configPath, 'utf8');
+      const configContent = this.deps.readFileSync(this.configPath, 'utf8');
+      if (typeof configContent !== 'string') {
+        return {};
+      }
       // Use 'core' schema to prevent dangerous YAML constructs (e.g. custom types)
       const parsed = yaml.parse(configContent, { schema: 'core' });
 
@@ -249,7 +268,7 @@ export class ConfigLoader {
     if (!detectedConfig.github?.repo) {
       try {
         // Use execFileSync to prevent shell injection via repo URL
-        const gitRemote = execFileSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], cwd: workingDir }).trim();
+        const gitRemote = this.deps.execFileSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], cwd: workingDir }).trim();
         
         // Handle both SSH and HTTPS URLs
         const sshMatch = gitRemote.match(/git@github\.com:([^\/]+)\/([^\/]+?)(?:\.git)?$/);
@@ -276,16 +295,15 @@ export class ConfigLoader {
     }
 
     // Enable deps check if package manager file exists (only if not explicitly set)
-    const fs = require('fs');
     if (detectedConfig.checks.deps === undefined) {
-      if (fs.existsSync(packageJsonPath) || fs.existsSync(requirementsPath) || fs.existsSync(goModPath)) {
+      if (this.deps.existsSync(packageJsonPath) || this.deps.existsSync(requirementsPath) || this.deps.existsSync(goModPath)) {
         detectedConfig.checks.deps = true;
       }
     }
 
     // Enable git check if .git directory exists (only if not explicitly set)
     if (detectedConfig.checks.git === undefined) {
-      if (fs.existsSync(path.join(workingDir, '.git'))) {
+      if (this.deps.existsSync(path.join(workingDir, '.git'))) {
         detectedConfig.checks.git = true;
       }
     }

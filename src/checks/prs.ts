@@ -1,12 +1,14 @@
 import { PulseliveConfig } from '../config';
 import { CheckResult } from '../scanner';
-import fetch from 'node-fetch';
+import { GitHubDeps, defaultGitHubDeps } from './github-deps';
 
 export class PRsCheck {
   private config: PulseliveConfig;
+  private deps: GitHubDeps;
 
-  constructor(config: PulseliveConfig) {
+  constructor(config: PulseliveConfig, deps: GitHubDeps = defaultGitHubDeps) {
     this.config = config;
+    this.deps = deps;
   }
 
   async run(): Promise<CheckResult> {
@@ -31,7 +33,7 @@ export class PRsCheck {
       }
 
       // Fetch open PRs
-      const response = await fetch(
+      const response = await this.deps.fetch(
         `https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`,
         {
           headers: {
@@ -55,7 +57,7 @@ export class PRsCheck {
       // Get total count via search API for accuracy
       let totalOpen = prs.length;
       try {
-        const countResponse = await fetch(
+        const countResponse = await this.deps.fetch(
           `https://api.github.com/search/issues?q=repo:${repo}+is:pr+is:open`,
           {
             headers: {

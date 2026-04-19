@@ -1,12 +1,14 @@
 import { PulseliveConfig } from '../config';
 import { CheckResult } from '../scanner';
-import fetch from 'node-fetch';
+import { GitHubDeps, defaultGitHubDeps } from './github-deps';
 
 export class CICheck {
   private config: PulseliveConfig;
+  private deps: GitHubDeps;
 
-  constructor(config: PulseliveConfig) {
+  constructor(config: PulseliveConfig, deps: GitHubDeps = defaultGitHubDeps) {
     this.config = config;
+    this.deps = deps;
   }
 
   async run(): Promise<CheckResult> {
@@ -30,7 +32,7 @@ export class CICheck {
         };
       }
 
-      const response = await fetch(
+      const response = await this.deps.fetch(
         `https://api.github.com/repos/${repo}/actions/runs?per_page=10`,
         {
           headers: {

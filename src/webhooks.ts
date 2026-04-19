@@ -5,6 +5,20 @@ import { TrendAnalyzer, AnomalyResult, HistoryEntry } from './trends';
 import { PulseliveConfig } from './config';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 
+export interface WebhookNotifierDeps {
+  fetch: (url: string, init?: any) => Promise<any>;
+  readFileSync: (path: string, options?: { encoding?: BufferEncoding }) => string | Buffer;
+  readdirSync: (path: string) => string[];
+  existsSync: (path: string) => boolean;
+}
+
+export const defaultWebhookNotifierDeps: WebhookNotifierDeps = {
+  fetch: fetch as any,
+  readFileSync: (path: string, options?: { encoding?: BufferEncoding }) => readFileSync(path, options as any),
+  readdirSync,
+  existsSync
+};
+
 interface WebhookConfig {
   url: string;
   events: string[];
@@ -29,10 +43,12 @@ const WEBHOOK_TIMEOUT = 5000;
 export class WebhookNotifier {
   private config: PulseliveConfig;
   private webhooks: WebhookConfig[];
+  private deps: WebhookNotifierDeps;
 
-  constructor(config: PulseliveConfig) {
+  constructor(config: PulseliveConfig, deps: WebhookNotifierDeps = defaultWebhookNotifierDeps) {
     this.config = config;
     this.webhooks = (config as any).webhooks || [];
+    this.deps = deps;
   }
 
   /**
@@ -178,7 +194,7 @@ export class WebhookNotifier {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT);
 
-        const response = await fetch(webhook.url, {
+        const response = await this.deps.fetch(webhook.url, {
           method: 'POST',
           headers,
           body,
@@ -209,15 +225,17 @@ export class WebhookNotifier {
   private loadHistory(): HistoryEntry[] {
     try {
       const historyDir = '.pulselive-history';
-      if (!existsSync(historyDir)) return [];
+      if (!this.deps.existsSync(historyDir)) return [];
 
-      const files = readdirSync(historyDir);
+      const files = this.deps.readdirSync(historyDir);
       const history: HistoryEntry[] = [];
 
       for (const file of files) {
         if (file.startsWith('run-') && file.endsWith('.json')) {
-          const content = readFileSync(`${historyDir}/${file}`, 'utf8');
-          history.push(JSON.parse(content));
+          const content = this.deps.readFileSync(`${historyDir}/${file}`, { encoding: 'utf8' as BufferEncoding });
+          if (typeof content === 'string') {
+            history.push(JSON.parse(content));
+          }
         }
       }
 

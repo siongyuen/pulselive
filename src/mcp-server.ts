@@ -18,25 +18,37 @@ interface MCPUsageEntry {
   status: 'success' | 'error';
 }
 
+export interface MCPDeps {
+  createScanner: (config: PulseliveConfig, dir?: string) => Scanner;
+  createConfigLoader: (configPath?: string) => ConfigLoader;
+}
+
+export const defaultMCPDeps: MCPDeps = {
+  createScanner: (config) => new Scanner(config),
+  createConfigLoader: (configPath?) => configPath ? new ConfigLoader(configPath) : new ConfigLoader(),
+};
+
 export class MCPServer {
   private configLoader: ConfigLoader;
   private server: Server | null = null;
   private port: number;
+  private mcpDeps: MCPDeps;
 
-  constructor(configLoader: ConfigLoader, port: number = 3000) {
+  constructor(configLoader: ConfigLoader, port: number = 3000, deps: MCPDeps = defaultMCPDeps) {
     this.configLoader = configLoader;
     this.port = port;
+    this.mcpDeps = deps;
   }
 
   private getScanner(dir?: string): Scanner {
     if (dir) {
       const safeDir = this.validateDir(dir);
-      const dirConfigLoader = new ConfigLoader(safeDir + '/.pulselive.yml');
+      const dirConfigLoader = this.mcpDeps.createConfigLoader(safeDir + '/.pulselive.yml');
       const config = dirConfigLoader.autoDetect();
-      return new Scanner(config);
+      return this.mcpDeps.createScanner(config, dir);
     }
     const config = this.configLoader.autoDetect();
-    return new Scanner(config);
+    return this.mcpDeps.createScanner(config);
   }
 
   private validateDir(dir: string): string {
@@ -229,6 +241,15 @@ export class MCPServer {
         return this.pulseliveMetrics(history, trendAnalyzer, params?.checkType);
       case 'pulselive_telemetry':
         return this.pulseliveTelemetry(params?.format);
+      case 'pulselive_status':
+        return this.pulseliveStatus();
+      case 'pulselive_recommend':
+        return this.pulseliveRecommend(scanner, history, trendAnalyzer);
+      case 'pulselive_multi_repo':
+        if (params?.repos) {
+          return this.pulseliveMultiRepoCheck(params.repos, false, params?.includeTrends);
+        }
+        throw new Error('Missing required parameter: repos');
       default:
         throw new Error('Unknown tool');
     }
@@ -582,7 +603,7 @@ export class MCPServer {
           }
         };
         
-        const scanner = new Scanner(tempConfig);
+        const scanner = this.mcpDeps.createScanner(tempConfig);
         const checkResults: CheckResult[] = quick 
           ? await scanner.runQuickChecks()
           : await scanner.runAllChecks();

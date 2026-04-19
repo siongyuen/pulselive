@@ -63,41 +63,21 @@ function isBlockedIP(ip: string): boolean {
  * - ff00::/8  (multicast)
  */
 function isIPv6InRanges(ip: string): boolean {
-  // Normalize: remove brackets, lowercase
   const normalized = ip.replace(/[[\]]/g, '').toLowerCase();
-
-  // Only process valid IPv6 addresses
   if (!normalized.includes(':')) return false;
-
-  // Expand :: shorthand for comparison
   const parts = expandIPv6(normalized);
   if (!parts) return false;
-
   const firstHex = parseInt(parts[0], 16);
-
-  // fc00::/7 — unique local (first 7 bits = 0xfc or 0xfd)
-  // In hex: first byte starts with fc or fd
   if (firstHex >= 0xfc00 && firstHex <= 0xfdff) return true;
-
-  // fe80::/10 — link-local (first 10 bits = 0xfe8)
   if (firstHex >= 0xfe80 && firstHex <= 0xfebf) return true;
-
-  // ff00::/8 — multicast
   if (firstHex >= 0xff00 && firstHex <= 0xffff) return true;
-
   return false;
 }
 
-/**
- * Expand an IPv6 address into 8 hextets.
- * e.g. "fd00:ec2::254" → ["fd00","00ec","0000","0000","0000","0000","0000","0254"]
- */
 function expandIPv6(ip: string): string[] | null {
   try {
-    // Handle :: expansion
     const halves = ip.split('::');
-    if (halves.length > 2) return null; // Invalid: multiple ::
-
+    if (halves.length > 2) return null;
     let left: string[], right: string[];
     if (halves.length === 2) {
       left = halves[0] ? halves[0].split(':') : [];
@@ -107,8 +87,6 @@ function expandIPv6(ip: string): string[] | null {
       const expanded = [...left, ...Array(missing).fill('0'), ...right];
       return expanded.map(h => h.padStart(4, '0'));
     }
-
-    // No :: — must be exactly 8 hextets
     const parts = ip.split(':');
     if (parts.length !== 8) return null;
     return parts.map(h => h.padStart(4, '0'));
@@ -118,36 +96,60 @@ function expandIPv6(ip: string): string[] | null {
 }
 
 /**
- * Resolve hostname and check that resolved IPs are not in blocked ranges.
- * Returns:
- *  - 'safe' if resolution succeeded and IP is not blocked
- *  - 'blocked' if all resolved IPs are in blocked ranges
- *  - 'unknown' if DNS resolution failed (not blocked, just unresolvable)
+ * Dependency injection interface for HealthCheck.
+ * Injects fetch and dns for testability without vi.mock.
  */
-async function resolveAndValidate(hostname: string): Promise<'safe' | 'blocked' | 'unknown'> {
-  const dns = require('dns');
+export interface HealthDeps {
+  fetch: (url: string, init?: any) => Promise<any>;
+  dnsLookup: (hostname: string, options: any) => Promise<string[]>;
+}
+
+/**
+ * Default implementation using real node-fetch and dns.
+ */
+export const defaultHealthDeps: HealthDeps = {
+  fetch: fetch as any,
+  dnsLookup: (hostname, options) => {
+    return new Promise((resolve, reject) => {
+      dns.lookup(hostname, { ...options, all: true }, (err: any, addresses: Array<{ address: string }>) => {
+        if (err || !addresses || addresses.length === 0) {
+          resolve([]);
+          return;
+        }
+        resolve(addresses.map(a => a.address));
+      });
+    });
+  },
+};
+
+/**
+ * Resolve hostname and check that resolved IPs are not in blocked ranges.
+ */
+async function resolveAndValidate(
+  hostname: string,
+  dnsLookup: HealthDeps['dnsLookup']
+): Promise<'safe' | 'blocked' | 'unknown'> {
   return new Promise((resolve) => {
-    dns.lookup(hostname, { all: true }, (err: any, addresses: Array<{ address: string }>) => {
-      if (err || !addresses || addresses.length === 0) {
-        // DNS failed — can't determine if blocked. Let it through and let fetch fail naturally.
+    dnsLookup(hostname, { all: true }).then((ips) => {
+      if (!ips || ips.length === 0) {
         resolve('unknown');
         return;
       }
-      for (const addr of addresses) {
-        if (!isBlockedIP(addr.address)) {
+      for (const ip of ips) {
+        if (!isBlockedIP(ip)) {
           resolve('safe');
           return;
         }
       }
-      // All resolved IPs are blocked
       resolve('blocked');
+    }).catch(() => {
+      resolve('unknown');
     });
   });
 }
 
 /**
  * Custom HTTP/HTTPS agent that pins DNS resolution to prevent DNS rebinding attacks.
- * Resolves hostname once, then validates that the connected IP matches the resolved IP.
  */
 class PinnedAgent extends HttpAgent {
   private resolvedIPs: string[];
@@ -161,7 +163,6 @@ class PinnedAgent extends HttpAgent {
   
   createConnection(options: any, callback: any): any {
     const socket = net.createConnection(options, () => {
-      // After connection, verify the remote IP matches one of our resolved IPs
       const remoteAddress = socket.remoteAddress;
       if (remoteAddress && !this.resolvedIPs.includes(remoteAddress)) {
         socket.destroy(new Error(`DNS rebinding detected: expected ${this.resolvedIPs.join(', ')} but connected to ${remoteAddress}`));
@@ -190,7 +191,6 @@ class PinnedHttpsAgent extends HttpsAgent {
   
   createConnection(options: any, callback: any): any {
     const socket = net.createConnection(options, () => {
-      // After connection, verify the remote IP matches one of our resolved IPs
       const remoteAddress = socket.remoteAddress;
       if (remoteAddress && !this.resolvedIPs.includes(remoteAddress)) {
         socket.destroy(new Error(`DNS rebinding detected: expected ${this.resolvedIPs.join(', ')} but connected to ${remoteAddress}`));
@@ -209,9 +209,11 @@ class PinnedHttpsAgent extends HttpsAgent {
 
 export class HealthCheck {
   private config: PulseliveConfig;
+  private deps: HealthDeps;
 
-  constructor(config: PulseliveConfig) {
+  constructor(config: PulseliveConfig, deps: HealthDeps = defaultHealthDeps) {
     this.config = config;
+    this.deps = deps;
   }
 
   async run(): Promise<CheckResult> {
@@ -264,10 +266,24 @@ export class HealthCheck {
           const parsedUrl = new URL(endpoint.url);
           let resolvedIPs: string[] = [];
           try {
-            resolvedIPs = await this.resolveAndPinHostname(parsedUrl.hostname);
+            resolvedIPs = await this.deps.dnsLookup(parsedUrl.hostname, { all: true });
+            const allowLocal = this.config.health?.allow_local === true;
+            // Validate resolved IPs against blocked ranges
+            for (const ip of resolvedIPs) {
+              // Always block cloud metadata IPs even with allow_local
+              if (CLOUD_METADATA_IPS.includes(ip)) {
+                throw new Error(`Cloud metadata IP blocked: ${ip}`);
+              }
+              // Block private/loopback IPs only when allow_local is false
+              if (!allowLocal && isBlockedIP(ip)) {
+                throw new Error(`Blocked IP range: ${ip}`);
+              }
+            }
           } catch (error) {
-            // If DNS pinning fails (e.g., in tests or when DNS is unavailable),
-            // fall back to default behavior - the existing SSRF validation will still protect us
+            if (error instanceof Error && (error.message.includes('Cloud metadata') || error.message.includes('Blocked IP'))) {
+              throw error;
+            }
+            // If DNS pinning fails, fall back to default behavior
             resolvedIPs = [];
           }
           
@@ -278,11 +294,11 @@ export class HealthCheck {
                 : new PinnedAgent(parsedUrl.hostname, resolvedIPs))
             : undefined;
 
-          const response = await fetch(endpoint.url, {
+          const response = await this.deps.fetch(endpoint.url, {
             method: 'GET',
             signal: controller.signal as AbortSignal,
             redirect: 'manual', // Don't follow redirects — prevents redirect-based SSRF
-            agent: agent as any // node-fetch expects Agent-like object
+            agent: agent as any
           });
           const responseTime = Date.now() - startTime;
           clearTimeout(timeoutId);
@@ -315,19 +331,18 @@ export class HealthCheck {
       const performanceWarnings = results.filter(r => {
         if (r.baseline && r.responseTime > 0) {
           const ratio = r.responseTime / r.baseline;
-          return ratio > 2 && ratio <= 5; // Warning: 2x-5x baseline
+          return ratio > 2 && ratio <= 5;
         }
         return false;
       });
       const performanceErrors = results.filter(r => {
         if (r.baseline && r.responseTime > 0) {
           const ratio = r.responseTime / r.baseline;
-          return ratio > 5 || r.responseTime > 10000; // Error: >5x baseline or >10s
+          return ratio > 5 || r.responseTime > 10000;
         }
         return false;
       });
 
-      // Calculate average latency for metrics
       const successfulEndpoints = results.filter(r => r.status >= 200 && r.status < 300);
       const avgLatency = successfulEndpoints.length > 0 
         ? successfulEndpoints.reduce((sum, r) => sum + (r.responseTime || 0), 0) / successfulEndpoints.length
@@ -347,18 +362,11 @@ export class HealthCheck {
           message: `${failedResults.length} endpoint(s) failed, ${performanceErrors.length} performance issue(s), avg ${Math.round(avgLatency)}ms`,
           details: results
         };
-      } else if (performanceWarnings.length > 0) {
-        return {
-          type: 'health',
-          status: 'warning',
-          message: `${performanceWarnings.length} endpoint(s) with performance warnings, avg ${Math.round(avgLatency)}ms`,
-          details: results
-        };
       } else {
         return {
           type: 'health',
           status: 'warning',
-          message: `Some endpoints have issues, avg ${Math.round(avgLatency)}ms`,
+          message: `Some endpoints have issues (${performanceWarnings.length} performance warning(s), avg ${Math.round(avgLatency)}ms)`,
           details: results
         };
       }
@@ -371,13 +379,6 @@ export class HealthCheck {
     }
   }
 
-  /**
-   * Validate that a URL is safe to fetch:
-   * - Must be HTTP or HTTPS
-   * - If allow_local is true, skip IP range checks (user explicitly trusts local endpoints)
-   * - Otherwise, hostname must resolve to a non-blocked IP
-   * - Always blocks cloud metadata endpoints (169.254.x.x) even with allow_local
-   */
   private async validateEndpointUrl(urlStr: string): Promise<{ safe: boolean; reason?: string }> {
     let parsed: URL;
     try {
@@ -396,12 +397,10 @@ export class HealthCheck {
 
     // Always block cloud metadata IPs even with allow_local
     const isMetadataIP = (ip: string) => {
-      // IPv4: 169.254.0.0/16
       if (ip.match(/^\d.+$/)) {
         const val = ipv4ToInt(ip);
         return val >= 0xA9FE0000 && val <= 0xA9FEFFFF;
       }
-      // IPv6: fd00:ec2::254 and fe80::/10 link-local
       if (ip.includes(':')) {
         return isIPv6InRanges(ip) || ip === '::1';
       }
@@ -409,21 +408,12 @@ export class HealthCheck {
     };
 
     if (allowLocal) {
-      // With allow_local, only block cloud metadata — allow loopback, RFC1918
       if (isMetadataIP(hostname)) {
         return { safe: false, reason: 'Cloud metadata or link-local endpoint blocked' };
       }
       // Also check if hostname resolves to metadata IP
       if (!hostname.match(/^\d.+$/) && !hostname.includes(':')) {
-        const result = await resolveAndValidate(hostname);
-        // For allow_local we only block metadata IPs, not private/loopback
-        const dnsMod = require('dns');
-        const ips = await new Promise<string[]>((resolve) => {
-          dnsMod.lookup(hostname, { all: true }, (err: any, addrs: Array<{ address: string }>) => {
-            if (err || !addrs) { resolve([]); return; }
-            resolve(addrs.map(a => a.address));
-          });
-        });
+        const ips = await this.deps.dnsLookup(hostname, { all: true });
         if (ips.some(ip => isMetadataIP(ip))) {
           return { safe: false, reason: 'Hostname resolves to cloud metadata IP (169.254.x.x)' };
         }
@@ -432,7 +422,6 @@ export class HealthCheck {
     }
 
     // Without allow_local — full SSRF protection
-    // Block if hostname is a raw IP in blocked ranges (IPv4 or IPv6)
     const isRawIP = hostname.match(/^\d.+$/) || hostname.includes(':');
     if (isRawIP) {
       if (isBlockedIP(hostname)) {
@@ -440,51 +429,12 @@ export class HealthCheck {
       }
     } else {
       // Hostname is a domain — resolve it and check resolved IPs
-      const result = await resolveAndValidate(hostname);
+      const result = await resolveAndValidate(hostname, this.deps.dnsLookup);
       if (result === 'blocked') {
         return { safe: false, reason: 'Hostname resolves to a blocked IP range (private/metadata/loopback)' };
       }
-      // If 'unknown' (DNS failed) or 'safe', allow through — fetch will fail naturally if unresolvable
     }
 
     return { safe: true };
   }
-
-  /**
-   * Resolve hostname and pin the IP addresses to prevent DNS rebinding attacks.
-   * Returns the resolved IP addresses that will be validated during connection.
-   */
-  private async resolveAndPinHostname(hostname: string): Promise<string[]> {
-    return new Promise((resolve, reject) => {
-      dns.lookup(hostname, { all: true }, (err: any, addresses: Array<{ address: string }>) => {
-        if (err || !addresses || addresses.length === 0) {
-          // DNS failed — allow through but fetch will fail naturally
-          resolve([]);
-          return;
-        }
-        
-        // Extract IP addresses and validate they're not blocked
-        const ips = addresses.map(addr => addr.address);
-        
-        // Always block cloud metadata IPs
-        for (const ip of ips) {
-          if (CLOUD_METADATA_IPS.includes(ip)) {
-            reject(new Error(`Cloud metadata IP blocked: ${ip}`));
-            return;
-          }
-        }
-        
-        // Validate against blocked IP ranges
-        for (const ip of ips) {
-          if (isBlockedIP(ip)) {
-            reject(new Error(`Blocked IP range: ${ip}`));
-            return;
-          }
-        }
-        
-        resolve(ips);
-      });
-    });
-  }
-
 }

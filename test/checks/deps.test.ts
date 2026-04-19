@@ -1,53 +1,41 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DepsCheck } from '../../src/checks/deps';
+import { DepsCheck, DepsDeps, defaultDepsDeps } from '../../src/checks/deps';
 import { PulseliveConfig } from '../../src/config';
-import { execFileSync } from 'child_process';
-import { existsSync } from 'fs';
-
-vi.mock('child_process');
-vi.mock('fs', async () => {
-  const actual = await vi.importActual('fs');
-  return {
-    ...actual,
-    existsSync: vi.fn()
-  };
-});
 
 describe('DepsCheck', () => {
-  let depsCheck: DepsCheck;
   let config: PulseliveConfig;
+  let mockDeps: DepsDeps;
 
   beforeEach(() => {
     config = {};
-    depsCheck = new DepsCheck(config);
-    vi.restoreAllMocks();
+    mockDeps = {
+      execFile: vi.fn(),
+      existsSync: vi.fn(),
+    };
   });
 
   it('should return warning when no package.json found', async () => {
-    (existsSync as any).mockImplementation((p: string) => {
-      return !p.includes('package.json');
-    });
-    
+    mockDeps.existsSync.mockReturnValue(false);
     // Mock execFileSync to throw errors for other package managers
-    (execFileSync as any).mockImplementation(() => {
+    mockDeps.execFile.mockImplementation(() => {
       const err: any = new Error('Command failed');
       err.stdout = '';
       throw err;
     });
-    
-    const result = await depsCheck.run();
-    
+
+    const check = new DepsCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('deps');
     expect(result.status).toBe('warning');
     expect(result.message).toContain('No supported package manager found');
   });
 
   it('should handle npm audit and outdated with vulnerabilities', async () => {
-    (existsSync as any).mockReturnValue(true);
-    
-    (execFileSync as any).mockImplementation((cmd: string, args: string[]) => {
+    mockDeps.existsSync.mockReturnValue(true);
+    mockDeps.execFile.mockImplementation((cmd: string, args: string[]) => {
       const command = args.join(' ');
-      if (command.includes('audit')) {
+      if (command.includes('audit') && !command.includes('fix')) {
         const err: any = new Error('exit code 1');
         err.stdout = JSON.stringify({
           vulnerabilities: {
@@ -74,50 +62,103 @@ describe('DepsCheck', () => {
       }
       return '';
     });
-    
-    const result = await depsCheck.run();
-    
+
+    const check = new DepsCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('deps');
     expect(result.status).toBe('error');
     expect(result.message).toContain('2 vulnerabilities, 2 outdated packages');
   });
 
   it('should handle no dependency issues', async () => {
-    (existsSync as any).mockReturnValue(true);
-    
-    (execFileSync as any).mockImplementation((cmd: string, args: string[]) => {
+    mockDeps.existsSync.mockReturnValue(true);
+    mockDeps.execFile.mockImplementation((cmd: string, args: string[]) => {
       const command = args.join(' ');
-      if (command.includes('audit')) {
+      if (command.includes('audit') && !command.includes('fix')) {
         return JSON.stringify({ vulnerabilities: {}, metadata: { vulnerabilities: { critical: 0, high: 0, medium: 0, low: 0 } } });
       } else if (command.includes('outdated')) {
         return JSON.stringify({});
       }
       return '';
     });
-    
-    const result = await depsCheck.run();
-    
+
+    const check = new DepsCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('deps');
     expect(result.status).toBe('success');
     expect(result.message).toContain('No dependency issues found');
   });
 
   it('should handle npm audit failure gracefully', async () => {
-    (existsSync as any).mockReturnValue(true);
-    
-    (execFileSync as any).mockImplementation((cmd: string, args: string[]) => {
+    mockDeps.existsSync.mockReturnValue(true);
+    mockDeps.execFile.mockImplementation((cmd: string, args: string[]) => {
       const command = args.join(' ');
-      if (command.includes('audit')) {
+      if (command.includes('audit') && !command.includes('fix')) {
         throw new Error('npm audit failed');
       } else if (command.includes('outdated')) {
         return JSON.stringify({});
       }
       return '';
     });
-    
-    const result = await depsCheck.run();
-    
+
+    const check = new DepsCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('deps');
     expect(result.status).toBe('success');
+  });
+
+  it('should use defaultDepsDeps when no deps provided', () => {
+    const check = new DepsCheck(config);
+    expect(check).toBeInstanceOf(DepsCheck);
+  });
+
+  it('should detect Python vulnerabilities via pip-audit', async () => {
+    mockDeps.existsSync.mockReturnValue(false);
+    mockDeps.execFile.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'pip-audit') {
+        const err: any = new Error('exit 1');
+        err.stdout = JSON.stringify({
+          dependencies: [
+            { vulns: [{ id: 'PYSEC-123' }, { id: 'PYSEC-456' }] }
+          ]
+        });
+        throw err;
+      }
+      throw new Error('not found');
+    });
+
+    const check = new DepsCheck(config, mockDeps);
+    const result = await check.run();
+
+    expect(result.type).toBe('deps');
+    expect(result.status).toBe('warning');
+    expect(result.message).toContain('2 Python vulnerabilities found');
+  });
+
+  it('should detect Go vulnerabilities via govulncheck', async () => {
+    mockDeps.existsSync.mockReturnValue(false);
+    mockDeps.execFile.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === 'pip-audit') {
+        const err: any = new Error('exit 1');
+        err.stdout = '';
+        throw err;
+      }
+      if (cmd === 'govulncheck') {
+        const err: any = new Error('exit 1');
+        err.stdout = 'Vulnerability #1\nVulnerability #2';
+        throw err;
+      }
+      throw new Error('not found');
+    });
+
+    const check = new DepsCheck(config, mockDeps);
+    const result = await check.run();
+
+    expect(result.type).toBe('deps');
+    expect(result.status).toBe('warning');
+    expect(result.message).toContain('2 Go vulnerabilities found');
   });
 });

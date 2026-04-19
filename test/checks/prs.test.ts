@@ -1,36 +1,39 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PRsCheck } from '../../src/checks/prs';
 import { PulseliveConfig } from '../../src/config';
-import fetch from 'node-fetch';
-
-vi.mock('node-fetch');
+import { GitHubDeps, defaultGitHubDeps } from '../../src/checks/github-deps';
 
 describe('PRsCheck', () => {
-  let prsCheck: PRsCheck;
   let config: PulseliveConfig;
+  let mockDeps: GitHubDeps;
 
   beforeEach(() => {
     config = {};
-    prsCheck = new PRsCheck(config);
+    mockDeps = {
+      fetch: vi.fn(),
+    };
   });
 
   it('should return warning when no repo configured', async () => {
-    const result = await prsCheck.run();
+    const check = new PRsCheck(config, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('prs');
     expect(result.status).toBe('warning');
     expect(result.message).toContain('No GitHub repository configured');
+    expect(mockDeps.fetch).not.toHaveBeenCalled();
   });
 
   it('should return warning when no token provided', async () => {
     config.github = { repo: 'test-org/test-repo' };
-    prsCheck = new PRsCheck(config);
+    const check = new PRsCheck(config, mockDeps);
     
-    const result = await prsCheck.run();
+    const result = await check.run();
     
     expect(result.type).toBe('prs');
     expect(result.status).toBe('warning');
     expect(result.message).toContain('No GitHub token provided');
+    expect(mockDeps.fetch).not.toHaveBeenCalled();
   });
 
   it('should handle API error', async () => {
@@ -38,14 +41,13 @@ describe('PRsCheck', () => {
       repo: 'test-org/test-repo',
       token: 'test-token'
     };
-    prsCheck = new PRsCheck(config);
-    
-    (fetch as any).mockResolvedValue({
+    mockDeps.fetch.mockResolvedValue({
       ok: false,
       status: 404
     });
     
-    const result = await prsCheck.run();
+    const check = new PRsCheck(config, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('prs');
     expect(result.status).toBe('error');
@@ -57,9 +59,7 @@ describe('PRsCheck', () => {
       repo: 'test-org/test-repo',
       token: 'test-token'
     };
-    prsCheck = new PRsCheck(config);
-    
-    (fetch as any).mockImplementation((url: string) => {
+    mockDeps.fetch.mockImplementation((url: string) => {
       if (url.includes('/pulls')) {
         return Promise.resolve({
           ok: true,
@@ -78,7 +78,8 @@ describe('PRsCheck', () => {
       return Promise.resolve({ ok: false });
     });
     
-    const result = await prsCheck.run();
+    const check = new PRsCheck(config, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('prs');
     expect(result.status).toBe('success');
@@ -91,9 +92,7 @@ describe('PRsCheck', () => {
       repo: 'test-org/test-repo',
       token: 'test-token'
     };
-    prsCheck = new PRsCheck(config);
-    
-    (fetch as any).mockImplementation((url: string) => {
+    mockDeps.fetch.mockImplementation((url: string) => {
       if (url.includes('/pulls')) {
         return Promise.resolve({
           ok: true,
@@ -113,12 +112,45 @@ describe('PRsCheck', () => {
       return Promise.resolve({ ok: false });
     });
     
-    const result = await prsCheck.run();
+    const check = new PRsCheck(config, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('prs');
     expect(result.status).toBe('error'); // conflict = error
     expect(result.details.hasConflicts).toBe(1);
     expect(result.details.needsReview).toBe(1);
     expect(result.details.drafts).toBe(1);
+  });
+
+  it('should use defaultGitHubDeps when no deps provided', () => {
+    const check = new PRsCheck(config);
+    expect(check).toBeInstanceOf(PRsCheck);
+  });
+
+  it('should handle network failure gracefully', async () => {
+    config.github = { repo: 'test-org/test-repo', token: 'test-token' };
+    mockDeps.fetch.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const check = new PRsCheck(config, mockDeps);
+    const result = await check.run();
+
+    expect(result.type).toBe('prs');
+    expect(result.status).toBe('error');
+    expect(result.message).toBe('PRs check failed');
+  });
+
+  it('should return warning for auth failure', async () => {
+    config.github = { repo: 'test-org/test-repo', token: 'bad-token' };
+    mockDeps.fetch.mockResolvedValue({
+      ok: false,
+      status: 403
+    });
+
+    const check = new PRsCheck(config, mockDeps);
+    const result = await check.run();
+
+    expect(result.type).toBe('prs');
+    expect(result.status).toBe('warning');
+    expect(result.message).toContain('GitHub auth failed');
   });
 });

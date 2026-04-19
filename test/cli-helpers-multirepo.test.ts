@@ -1,34 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { handleMultiRepoCheck, CLIDeps, defaultCLIDeps } from '../src/cli-helpers';
+import { handleMultiRepoCheck, MultiRepoDeps, defaultMultiRepoDeps } from '../src/cli-helpers';
 import { CheckResult } from '../src/scanner';
 
-// Mock Scanner class at the top level
-vi.mock('../src/scanner', () => {
-  const MockScanner = class {
-    constructor(private config: any) {}
-    
-    async runQuickChecks(): Promise<CheckResult[]> {
-      return [
-        { type: 'git', status: 'success', message: 'Git status OK', details: {}, duration: 100 },
-        { type: 'ci', status: 'success', message: 'CI healthy', details: {}, duration: 100 }
-      ];
-    }
-    
-    async runAllChecks(): Promise<CheckResult[]> {
-      return [
-        { type: 'git', status: 'success', message: 'Git status OK', details: {}, duration: 100 },
-        { type: 'ci', status: 'success', message: 'CI healthy', details: {}, duration: 100 },
-        { type: 'deps', status: 'success', message: 'Dependencies OK', details: {}, duration: 100 },
-        { type: 'coverage', status: 'success', message: 'Coverage OK', details: {}, duration: 100 }
-      ];
-    }
-  };
+// Mock Scanner class for testing
+class MockScanner {
+  constructor(private config: any) {}
   
-  return { Scanner: MockScanner };
-});
+  async runQuickChecks(): Promise<CheckResult[]> {
+    return [
+      { type: 'git', status: 'success', message: 'Git status OK', details: {}, duration: 100 },
+      { type: 'ci', status: 'success', message: 'CI healthy', details: {}, duration: 100 }
+    ];
+  }
+  
+  async runAllChecks(): Promise<CheckResult[]> {
+    return [
+      { type: 'git', status: 'success', message: 'Git status OK', details: {}, duration: 100 },
+      { type: 'ci', status: 'success', message: 'CI healthy', details: {}, duration: 100 },
+      { type: 'deps', status: 'success', message: 'Dependencies OK', details: {}, duration: 100 },
+      { type: 'coverage', status: 'success', message: 'Coverage OK', details: {}, duration: 100 }
+    ];
+  }
+}
 
 describe('handleMultiRepoCheck', () => {
-  let mockDeps: CLIDeps;
+  let mockDeps: MultiRepoDeps;
   let logOutput: any[];
   let errorOutput: any[];
   let exitCode: number | null;
@@ -39,6 +35,7 @@ describe('handleMultiRepoCheck', () => {
     exitCode = null;
     
     mockDeps = {
+      ...defaultMultiRepoDeps,
       exit: (code: number) => { exitCode = code; },
       log: (...args: any[]) => { logOutput.push(args); },
       error: (...args: any[]) => { errorOutput.push(args); },
@@ -47,7 +44,8 @@ describe('handleMultiRepoCheck', () => {
       existsSync: (p: string) => false,
       mkdirSync: (p: string, opts?: any) => {},
       execFile: (cmd: string, args: string[], opts: any) => '',
-      cwd: () => '/test'
+      cwd: () => '/test',
+      createScanner: (config: any) => new MockScanner(config)
     };
   });
 
@@ -259,7 +257,7 @@ describe('handleMultiRepoCheck', () => {
   // ── Default Dependencies ───
 
   describe('default dependencies', () => {
-    it('should use defaultCLIDeps when deps parameter is not provided', async () => {
+    it('should use defaultMultiRepoDeps when deps parameter is not provided', async () => {
       // This test verifies that the function works with default deps
       const result = handleMultiRepoCheck('owner/repo1', { json: true });
       expect(result).toBeInstanceOf(Promise);

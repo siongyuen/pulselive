@@ -3,32 +3,56 @@ import { CheckResult } from '../scanner';
 import { execFileSync } from 'child_process';
 
 /**
- * Safely execute a git command using execFileSync to prevent shell injection.
- * execFileSync does not spawn a shell — arguments are passed directly to the binary.
+ * Dependency injection interface for GitCheck.
+ * Allows injecting the execFile function for testability
+ * without relying on module-level vi.mock.
  */
-function git(args: string[], cwd: string): string {
-  return execFileSync('git', args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], cwd }).trim();
+export interface GitDeps {
+  execFile: (command: string, args: string[], options: { encoding: string; stdio: string[]; cwd: string }) => string;
 }
+
+/**
+ * Default implementation that uses real child_process.execFileSync.
+ */
+export const defaultGitDeps: GitDeps = {
+  execFile: (command, args, options) => {
+    return execFileSync(command, args, options as any).toString();
+  },
+};
 
 export class GitCheck {
   private config: PulseliveConfig;
   private workingDir: string;
+  private deps: GitDeps;
 
-  constructor(config: PulseliveConfig, workingDir: string = process.cwd()) {
+  constructor(config: PulseliveConfig, workingDir: string = process.cwd(), deps: GitDeps = defaultGitDeps) {
     this.config = config;
     this.workingDir = workingDir;
+    this.deps = deps;
+  }
+
+  /**
+   * Safely execute a git command using execFile to prevent shell injection.
+   * Arguments are passed directly to the binary — no shell spawning.
+   */
+  private git(args: string[]): string {
+    return this.deps.execFile('git', args, {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: this.workingDir,
+    }).trim();
   }
 
   async run(): Promise<CheckResult> {
     try {
       // Get current branch
-      const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], this.workingDir);
+      const branch = this.git(['rev-parse', '--abbrev-ref', 'HEAD']);
 
       // Get recent commits
-      const recentCommits = git(['log', '--oneline', '-5'], this.workingDir);
+      const recentCommits = this.git(['log', '--oneline', '-5']);
 
       // Get uncommitted changes count
-      const uncommitted = git(['status', '--porcelain'], this.workingDir);
+      const uncommitted = this.git(['status', '--porcelain']);
       const uncommittedCount = uncommitted.split('\n').filter(line => line.trim() !== '').length;
 
       // Get divergence from default branch (main, master, or trunk)
@@ -37,14 +61,14 @@ export class GitCheck {
         // Resolve the default branch: prefer remote HEAD, fall back to local branches
         let defaultBranch: string | undefined;
         try {
-          const remoteHead = git(['rev-parse', '--abbrev-ref', 'HEAD@{upstream}'], this.workingDir);
+          const remoteHead = this.git(['rev-parse', '--abbrev-ref', 'HEAD@{upstream}']);
           // e.g. 'origin/main' → extract 'main'
           defaultBranch = remoteHead.split('/').slice(1).join('/');
         } catch {
           // No upstream — try common defaults in order
           for (const candidate of ['main', 'master', 'trunk', 'develop']) {
             try {
-              git(['rev-parse', '--verify', candidate], this.workingDir);
+              this.git(['rev-parse', '--verify', candidate]);
               defaultBranch = candidate;
               break;
             } catch {
@@ -60,7 +84,7 @@ export class GitCheck {
           if (defaultBranch === branch) {
             try {
               // Try to use the upstream tracking branch for comparison
-              const upstream = git(['rev-parse', '--abbrev-ref', 'HEAD@{upstream}'], this.workingDir);
+              const upstream = this.git(['rev-parse', '--abbrev-ref', 'HEAD@{upstream}']);
               compareRef = upstream; // e.g. 'origin/main'
             } catch {
               // No upstream set — already on default branch with no remote, can't determine divergence
@@ -71,9 +95,9 @@ export class GitCheck {
             compareRef = defaultBranch;
           }
 
-          const compareCommit = git(['rev-parse', compareRef], this.workingDir);
-          const currentCommit = git(['rev-parse', 'HEAD'], this.workingDir);
-          const diff = git(['rev-list', '--left-right', '--count', `${compareCommit}...${currentCommit}`], this.workingDir);
+          const compareCommit = this.git(['rev-parse', compareRef]);
+          const currentCommit = this.git(['rev-parse', 'HEAD']);
+          const diff = this.git(['rev-list', '--left-right', '--count', `${compareCommit}...${currentCommit}`]);
           const [behind, ahead] = diff.split('\t').map(Number);
           divergence = ahead > 0 ? `ahead by ${ahead}` : behind > 0 ? `behind by ${behind}` : 'up to date';
         }

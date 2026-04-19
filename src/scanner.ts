@@ -43,41 +43,138 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2): Promi
   throw lastError;
 }
 
+/**
+ * Interface for check instances — any check must implement run().
+ */
+export interface Check {
+  run(): Promise<CheckResult>;
+}
+
+/**
+ * Factory function type for creating check instances.
+ * Takes config and workingDir, returns a Check.
+ */
+export type CheckFactory = (config: PulseliveConfig, workingDir: string) => Check;
+
+/**
+ * Check registry entry — defines a check type, its factory, retry behaviour, and config key.
+ */
+interface CheckEntry {
+  type: string;
+  factory: CheckFactory;
+  retryable: boolean;
+  configKey: string;  // e.g. 'ci', 'deps', 'coverage' — used for enable/disable check
+}
+
+/**
+ * OTel dependency injection — wraps initOtel, withOtelSpan, exportResults for testability.
+ */
+export interface OTelDeps {
+  init: (config: PulseliveConfig) => boolean;
+  withSpan: <T>(name: string, fn: () => Promise<T>) => Promise<T>;
+  exportResults: (results: CheckResult[]) => void;
+}
+
+export const defaultOTelDeps: OTelDeps = {
+  init: initOtel,
+  withSpan: withOtelSpan,
+  exportResults: exportResults,
+};
+
+/**
+ * Webhook dependency injection — wraps WebhookNotifier for testability.
+ */
+export interface WebhookDeps {
+  notify: (results: CheckResult[]) => Promise<void>;
+}
+
+export const defaultWebhookDeps: (config: PulseliveConfig) => WebhookDeps = (config) => ({
+  notify: (results) => new WebhookNotifier(config).notify(results),
+});
+
+/**
+ * Scanner dependency injection — aggregates all injectable dependencies.
+ */
+export interface ScannerDeps {
+  checks: CheckEntry[];
+  otel: OTelDeps;
+  webhook: WebhookDeps;
+}
+
+/**
+ * Default check registry using real check classes.
+ */
+export const defaultCheckEntries: CheckEntry[] = [
+  { type: 'ci', factory: (cfg) => new CICheck(cfg), retryable: true, configKey: 'ci' },
+  { type: 'deploy', factory: (cfg) => new DeployCheck(cfg), retryable: true, configKey: 'deploy' },
+  { type: 'health', factory: (cfg) => new HealthCheck(cfg), retryable: false, configKey: 'health' },
+  { type: 'git', factory: (cfg, wd) => new GitCheck(cfg, wd), retryable: true, configKey: 'git' },
+  { type: 'issues', factory: (cfg) => new IssuesCheck(cfg), retryable: true, configKey: 'issues' },
+  { type: 'prs', factory: (cfg) => new PRsCheck(cfg), retryable: true, configKey: 'prs' },
+  { type: 'coverage', factory: (cfg) => new CoverageCheck(cfg), retryable: false, configKey: 'coverage' },
+  { type: 'deps', factory: (cfg) => new DepsCheck(cfg), retryable: false, configKey: 'deps' },
+];
+
 export class Scanner {
   private config: PulseliveConfig;
   private workingDir: string;
   private otelEnabled: boolean;
+  private deps: ScannerDeps;
 
-  constructor(config: PulseliveConfig, workingDir: string = process.cwd()) {
+  constructor(config: PulseliveConfig, workingDir: string = process.cwd(), deps?: Partial<ScannerDeps>) {
     this.config = config;
     this.workingDir = workingDir;
-    this.otelEnabled = initOtel(config);
+    
+    const otel = deps?.otel || defaultOTelDeps;
+    this.otelEnabled = otel.init(config);
+    
+    this.deps = {
+      checks: deps?.checks || defaultCheckEntries,
+      otel,
+      webhook: deps?.webhook || defaultWebhookDeps(config),
+    };
+  }
+
+  /**
+   * Check if a check type is enabled based on config.
+   */
+  private isEnabled(entry: CheckEntry): boolean {
+    const config = this.config.checks;
+    if (!config) return true;
+    
+    // Special handling for coverage which has a nested enabled flag
+    if (entry.type === 'coverage') {
+      return config.coverage?.enabled !== false;
+    }
+    
+    return (config as any)[entry.configKey] !== false;
+  }
+
+  /**
+   * Run a single check entry, with optional retry and OTel wrapping.
+   */
+  private async runCheck(entry: CheckEntry): Promise<CheckResult> {
+    const check = entry.factory(this.config, this.workingDir);
+    const runFn = entry.retryable ? () => withRetry(() => check.run()) : () => check.run();
+    const wrappedFn = this.otelEnabled 
+      ? () => this.deps.otel.withSpan(entry.type, runFn)
+      : runFn;
+    return wrappedFn();
   }
 
   async runAllChecks(): Promise<CheckResult[]> {
     const results: CheckResult[] = [];
 
-    const checks: Array<{ type: string; enabled: boolean; run: () => Promise<CheckResult> }> = [
-      { type: 'ci', enabled: this.config.checks?.ci !== false, run: () => withRetry(() => new CICheck(this.config).run()) },
-      { type: 'deploy', enabled: this.config.checks?.deploy !== false, run: () => withRetry(() => new DeployCheck(this.config).run()) },
-      { type: 'health', enabled: this.config.checks?.health !== false, run: () => new HealthCheck(this.config).run() },
-      { type: 'git', enabled: this.config.checks?.git !== false, run: () => withRetry(() => new GitCheck(this.config, this.workingDir).run()) },
-      { type: 'issues', enabled: this.config.checks?.issues !== false, run: () => withRetry(() => new IssuesCheck(this.config).run()) },
-      { type: 'prs', enabled: this.config.checks?.prs !== false, run: () => withRetry(() => new PRsCheck(this.config).run()) },
-      { type: 'coverage', enabled: this.config.checks?.coverage?.enabled !== false, run: () => new CoverageCheck(this.config).run() },
-      { type: 'deps', enabled: this.config.checks?.deps !== false, run: () => new DepsCheck(this.config).run() },
-    ];
-
-    for (const check of checks) {
-      if (!check.enabled) continue;
+    for (const entry of this.deps.checks) {
+      if (!this.isEnabled(entry)) continue;
       const startTime = Date.now();
       try {
-        const result = await (this.otelEnabled ? withOtelSpan(check.type, check.run) : check.run());
+        const result = await this.runCheck(entry);
         result.duration = Date.now() - startTime;
         results.push(result);
       } catch (error) {
         results.push({
-          type: check.type,
+          type: entry.type,
           status: 'error',
           message: 'Check failed after retries',
           duration: Date.now() - startTime
@@ -87,12 +184,11 @@ export class Scanner {
 
     // Export results to OpenTelemetry if enabled
     if (this.otelEnabled) {
-      exportResults(results);
+      this.deps.otel.exportResults(results);
     }
 
     // Fire webhook notifications (non-blocking)
-    const notifier = new WebhookNotifier(this.config);
-    notifier.notify(results).catch(() => {
+    this.deps.webhook.notify(results).catch(() => {
       // Webhook failures should not affect check results
     });
 
@@ -100,7 +196,7 @@ export class Scanner {
   }
 
   async runSingleCheck(checkType: string): Promise<CheckResult> {
-    const validTypes = ['ci', 'deploy', 'health', 'git', 'issues', 'prs', 'deps', 'coverage'];
+    const validTypes = this.deps.checks.map(e => e.type);
     if (!validTypes.includes(checkType)) {
       return {
         type: checkType,
@@ -110,7 +206,8 @@ export class Scanner {
     }
 
     // Respect config enable/disable flags
-    if (this.config.checks?.[checkType as keyof typeof this.config.checks] === false) {
+    const entry = this.deps.checks.find(e => e.type === checkType);
+    if (entry && !this.isEnabled(entry)) {
       return {
         type: checkType,
         status: 'warning',
@@ -121,39 +218,21 @@ export class Scanner {
     const startTime = Date.now();
     let result: CheckResult;
 
-    const retryableCheck = (fn: () => Promise<CheckResult>) => withRetry(fn);
-
-    switch (checkType) {
-      case 'ci':
-        result = await (this.otelEnabled ? withOtelSpan(checkType, () => retryableCheck(() => new CICheck(this.config).run())) : retryableCheck(() => new CICheck(this.config).run()));
-        break;
-      case 'deploy':
-        result = await (this.otelEnabled ? withOtelSpan(checkType, () => retryableCheck(() => new DeployCheck(this.config).run())) : retryableCheck(() => new DeployCheck(this.config).run()));
-        break;
-      case 'health':
-        result = await (this.otelEnabled ? withOtelSpan(checkType, () => new HealthCheck(this.config).run()) : new HealthCheck(this.config).run());
-        break;
-      case 'git':
-        result = await (this.otelEnabled ? withOtelSpan(checkType, () => new GitCheck(this.config, this.workingDir).run()) : new GitCheck(this.config, this.workingDir).run());
-        break;
-      case 'issues':
-        result = await (this.otelEnabled ? withOtelSpan(checkType, () => retryableCheck(() => new IssuesCheck(this.config).run())) : retryableCheck(() => new IssuesCheck(this.config).run()));
-        break;
-      case 'prs':
-        result = await (this.otelEnabled ? withOtelSpan(checkType, () => retryableCheck(() => new PRsCheck(this.config).run())) : retryableCheck(() => new PRsCheck(this.config).run()));
-        break;
-      case 'coverage':
-        result = await (this.otelEnabled ? withOtelSpan(checkType, () => new CoverageCheck(this.config).run()) : new CoverageCheck(this.config).run());
-        break;
-      default:
-        result = { type: checkType, status: 'error', message: `Unknown check type: ${checkType}` };
+    try {
+      result = await this.runCheck(entry!);
+    } catch (error) {
+      result = {
+        type: checkType,
+        status: 'error',
+        message: 'Check failed after retries'
+      };
     }
 
     result.duration = Date.now() - startTime;
     
     // Export single check result if OTel is enabled
     if (this.otelEnabled) {
-      exportResults([result]);
+      this.deps.otel.exportResults([result]);
     }
     
     return result;
@@ -166,26 +245,19 @@ export class Scanner {
    */
   async runQuickChecks(): Promise<CheckResult[]> {
     const results: CheckResult[] = [];
+    const quickTypes = new Set(['ci', 'deploy', 'health', 'git', 'issues', 'prs']);
 
-    const checks: Array<{ type: string; enabled: boolean; run: () => Promise<CheckResult> }> = [
-      { type: 'ci', enabled: this.config.checks?.ci !== false, run: () => withRetry(() => new CICheck(this.config).run()) },
-      { type: 'deploy', enabled: this.config.checks?.deploy !== false, run: () => withRetry(() => new DeployCheck(this.config).run()) },
-      { type: 'health', enabled: this.config.checks?.health !== false, run: () => new HealthCheck(this.config).run() },
-      { type: 'git', enabled: this.config.checks?.git !== false, run: () => new GitCheck(this.config, this.workingDir).run() },
-      { type: 'issues', enabled: this.config.checks?.issues !== false, run: () => withRetry(() => new IssuesCheck(this.config).run()) },
-      { type: 'prs', enabled: this.config.checks?.prs !== false, run: () => withRetry(() => new PRsCheck(this.config).run()) },
-    ];
-
-    for (const check of checks) {
-      if (!check.enabled) continue;
+    for (const entry of this.deps.checks) {
+      if (!quickTypes.has(entry.type)) continue;
+      if (!this.isEnabled(entry)) continue;
       const startTime = Date.now();
       try {
-        const result = await (this.otelEnabled ? withOtelSpan(check.type, check.run) : check.run());
+        const result = await this.runCheck(entry);
         result.duration = Date.now() - startTime;
         results.push(result);
       } catch (error) {
         results.push({
-          type: check.type,
+          type: entry.type,
           status: 'error',
           message: 'Check failed after retries',
           duration: Date.now() - startTime
@@ -194,17 +266,14 @@ export class Scanner {
     }
 
     // Add skipped check placeholders so agents know what was omitted
-    const skipped: Array<{ type: string; enabled: boolean }> = [
-      { type: 'deps', enabled: this.config.checks?.deps !== false },
-      { type: 'coverage', enabled: this.config.checks?.coverage?.enabled !== false },
-    ];
-
-    for (const skip of skipped) {
-      if (skip.enabled) {
+    const skippedTypes = ['deps', 'coverage'];
+    for (const type of skippedTypes) {
+      const entry = this.deps.checks.find(e => e.type === type);
+      if (entry && this.isEnabled(entry)) {
         results.push({
-          type: skip.type,
+          type,
           status: 'warning',
-          message: `${skip.type} check skipped in quick mode — run full check for details`,
+          message: `${type} check skipped in quick mode — run full check for details`,
           duration: 0
         });
       }
@@ -212,7 +281,7 @@ export class Scanner {
 
     // Export results to OpenTelemetry if enabled
     if (this.otelEnabled) {
-      exportResults(results);
+      this.deps.otel.exportResults(results);
     }
 
     return results;

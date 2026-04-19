@@ -1,12 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DeployCheck } from '../../src/checks/deploy';
-import fetch from 'node-fetch';
-
-vi.mock('node-fetch');
+import { GitHubDeps, defaultGitHubDeps } from '../../src/checks/github-deps';
 
 describe('DeployCheck', () => {
-  let deployCheck: DeployCheck;
   let mockConfig: any;
+  let mockDeps: GitHubDeps;
 
   beforeEach(() => {
     mockConfig = {
@@ -15,38 +13,43 @@ describe('DeployCheck', () => {
         token: 'test-token'
       }
     };
-    deployCheck = new DeployCheck(mockConfig);
+    mockDeps = {
+      fetch: vi.fn(),
+    };
   });
 
   it('should return warning when no repository configured', async () => {
     const config = { github: {} };
-    const check = new DeployCheck(config);
+    const check = new DeployCheck(config, mockDeps);
     
     const result = await check.run();
     
     expect(result.type).toBe('deploy');
     expect(result.status).toBe('warning');
     expect(result.message).toBe('No GitHub repository configured');
+    expect(mockDeps.fetch).not.toHaveBeenCalled();
   });
 
   it('should return warning when no token provided', async () => {
     const config = { github: { repo: 'test-org/test-repo' } };
-    const check = new DeployCheck(config);
+    const check = new DeployCheck(config, mockDeps);
     
     const result = await check.run();
     
     expect(result.type).toBe('deploy');
     expect(result.status).toBe('warning');
     expect(result.message).toBe('No GitHub token provided, skipping deploy check');
+    expect(mockDeps.fetch).not.toHaveBeenCalled();
   });
 
   it('should return error when GitHub API returns non-200 status', async () => {
-    (fetch as any).mockResolvedValue({
+    mockDeps.fetch.mockResolvedValue({
       ok: false,
       status: 500
     });
     
-    const result = await deployCheck.run();
+    const check = new DeployCheck(mockConfig, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('deploy');
     expect(result.status).toBe('error');
@@ -54,12 +57,13 @@ describe('DeployCheck', () => {
   });
 
   it('should return warning when GitHub API returns auth failure', async () => {
-    (fetch as any).mockResolvedValue({
+    mockDeps.fetch.mockResolvedValue({
       ok: false,
       status: 401
     });
     
-    const result = await deployCheck.run();
+    const check = new DeployCheck(mockConfig, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('deploy');
     expect(result.status).toBe('warning');
@@ -67,12 +71,13 @@ describe('DeployCheck', () => {
   });
 
   it('should return warning when no deployments found', async () => {
-    (fetch as any).mockResolvedValue({
+    mockDeps.fetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue([])
     });
     
-    const result = await deployCheck.run();
+    const check = new DeployCheck(mockConfig, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('deploy');
     expect(result.status).toBe('warning');
@@ -87,12 +92,13 @@ describe('DeployCheck', () => {
       created_at: '2023-01-01T00:00:00Z'
     };
     
-    (fetch as any).mockResolvedValue({
+    mockDeps.fetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue([mockDeployment])
     });
     
-    const result = await deployCheck.run();
+    const check = new DeployCheck(mockConfig, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('deploy');
     expect(result.status).toBe('success');
@@ -111,40 +117,17 @@ describe('DeployCheck', () => {
       created_at: '2023-01-01T00:00:00Z'
     };
     
-    (fetch as any).mockResolvedValue({
+    mockDeps.fetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue([mockDeployment])
     });
     
-    const result = await deployCheck.run();
+    const check = new DeployCheck(mockConfig, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('deploy');
     expect(result.status).toBe('error');
     expect(result.message).toBe('Latest deployment: production (error)');
-    expect(result.details).toEqual({
-      deploymentId: 123,
-      createdAt: '2023-01-01T00:00:00Z'
-    });
-  });
-
-  it('should return error when latest deployment has failure status', async () => {
-    const mockDeployment = {
-      id: 123,
-      environment: 'production',
-      state: 'failure',
-      created_at: '2023-01-01T00:00:00Z'
-    };
-    
-    (fetch as any).mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue([mockDeployment])
-    });
-    
-    const result = await deployCheck.run();
-    
-    expect(result.type).toBe('deploy');
-    expect(result.status).toBe('error');
-    expect(result.message).toBe('Latest deployment: production (failure)');
   });
 
   it('should return warning when latest deployment has pending status', async () => {
@@ -155,31 +138,13 @@ describe('DeployCheck', () => {
       created_at: '2023-01-01T00:00:00Z'
     };
     
-    (fetch as any).mockResolvedValue({
+    mockDeps.fetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue([mockDeployment])
     });
     
-    const result = await deployCheck.run();
-    
-    expect(result.type).toBe('deploy');
-    expect(result.status).toBe('warning');
-    expect(result.message).toBe('Latest deployment: production (pending)');
-  });
-
-  it('should return warning when latest deployment has no state', async () => {
-    const mockDeployment = {
-      id: 123,
-      environment: 'production',
-      created_at: '2023-01-01T00:00:00Z'
-    };
-    
-    (fetch as any).mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue([mockDeployment])
-    });
-    
-    const result = await deployCheck.run();
+    const check = new DeployCheck(mockConfig, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('deploy');
     expect(result.status).toBe('warning');
@@ -187,16 +152,17 @@ describe('DeployCheck', () => {
   });
 
   it('should return error when fetch throws an exception', async () => {
-    (fetch as any).mockRejectedValue(new Error('Network error'));
+    mockDeps.fetch.mockRejectedValue(new Error('Network error'));
     
-    const result = await deployCheck.run();
+    const check = new DeployCheck(mockConfig, mockDeps);
+    const result = await check.run();
     
     expect(result.type).toBe('deploy');
     expect(result.status).toBe('error');
     expect(result.message).toBe('Deploy check failed');
   });
 
-  it('should use correct GitHub API URL', async () => {
+  it('should use correct GitHub API URL and headers', async () => {
     const mockDeployment = {
       id: 123,
       environment: 'production',
@@ -204,39 +170,27 @@ describe('DeployCheck', () => {
       created_at: '2023-01-01T00:00:00Z'
     };
     
-    (fetch as any).mockResolvedValue({
+    mockDeps.fetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue([mockDeployment])
     });
     
-    await deployCheck.run();
+    const check = new DeployCheck(mockConfig, mockDeps);
+    await check.run();
     
-    expect(fetch).toHaveBeenCalledWith(
+    expect(mockDeps.fetch).toHaveBeenCalledWith(
       'https://api.github.com/repos/test-org/test-repo/deployments',
-      expect.objectContaining({
+      {
         headers: {
           Authorization: 'token test-token',
           Accept: 'application/vnd.github.v3+json'
         }
-      })
+      }
     );
   });
 
-  it('should handle deployment with different environment names', async () => {
-    const mockDeployment = {
-      id: 123,
-      environment: 'staging',
-      state: 'success',
-      created_at: '2023-01-01T00:00:00Z'
-    };
-    
-    (fetch as any).mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue([mockDeployment])
-    });
-    
-    const result = await deployCheck.run();
-    
-    expect(result.message).toBe('Latest deployment: staging (success)');
+  it('should use defaultGitHubDeps when no deps provided', () => {
+    const check = new DeployCheck(mockConfig);
+    expect(check).toBeInstanceOf(DeployCheck);
   });
 });

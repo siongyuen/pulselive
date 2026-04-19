@@ -1,116 +1,364 @@
-import { describe, it, expect } from 'vitest';
-import { resolve, normalize } from 'path';
-import fs from 'fs';
-import path from 'path';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MCPServer, MCPDeps } from '../src/mcp-server';
+import { ConfigLoader } from '../src/config';
+import { CheckResult } from '../src/scanner';
+import { Scanner } from '../src/scanner';
 
-describe('MCPServer', () => {
-  const projectRoot = process.cwd();
-  const serverSourcePath = path.join(projectRoot, 'src/mcp-server.ts');
-  const helpersSourcePath = path.join(projectRoot, 'src/mcp-helpers.ts');
-  const indexPath = path.join(projectRoot, 'src/index.ts');
+function makeMockScanner(results: CheckResult[] = []): any {
+  return {
+    runAllChecks: vi.fn().mockResolvedValue(results),
+    runQuickChecks: vi.fn().mockResolvedValue(results),
+    runSingleCheck: vi.fn().mockResolvedValue(results[0] || { type: 'ci', status: 'success', message: 'OK' }),
+  };
+}
 
-  describe('validateDir logic', () => {
-    const validateDir = (dir: string) => {
-      if (dir.includes('\0')) throw new Error('Invalid directory path');
-      const resolved = resolve(normalize(dir));
-      if (resolved.includes('..')) throw new Error('Directory path traversal not allowed');
-      if (!resolved.startsWith('/')) throw new Error('Directory must be an absolute path');
-      return resolved;
-    };
+function makeMockDeps(scannerResults: CheckResult[] = [
+  { type: 'ci', status: 'success', message: 'CI passing', duration: 100 }
+]): MCPDeps {
+  const mockScanner = makeMockScanner(scannerResults);
+  return {
+    createScanner: vi.fn().mockReturnValue(mockScanner),
+    createConfigLoader: vi.fn().mockReturnValue({
+      autoDetect: vi.fn().mockReturnValue({
+        github: { repo: 'test/repo' },
+        checks: { ci: true },
+      }),
+      getConfig: vi.fn().mockReturnValue({}),
+    }),
+  };
+}
 
-    it('blocks null bytes in directory path', () => {
-      expect(() => validateDir('/etc/passwd\0.txt')).toThrow('Invalid directory path');
+function makeMockConfigLoader(): ConfigLoader {
+  return {
+    autoDetect: vi.fn().mockReturnValue({
+      github: { repo: 'test/repo' },
+      checks: { ci: true },
+    }),
+    getConfig: vi.fn().mockReturnValue({}),
+    validateConfig: vi.fn().mockReturnValue({ warnings: [], errors: [] }),
+  } as any;
+}
+
+function makeHistory(count: number): any[] {
+  const entries = [];
+  for (let i = 0; i < count; i++) {
+    entries.push({
+      timestamp: new Date(2024, 0, i + 1).toISOString(),
+      results: [{ type: 'ci', status: 'success', message: 'CI passing', duration: 100 + i * 10 }]
+    });
+  }
+  return entries;
+}
+
+describe('MCPServer — Tool Handler Tests', () => {
+  let server: MCPServer;
+  let mockDeps: MCPDeps;
+  let configLoader: ConfigLoader;
+
+  beforeEach(() => {
+    configLoader = makeMockConfigLoader();
+    // Mock loadHistory to return test data
+    vi.spyOn(MCPServer.prototype as any, 'loadHistory').mockReturnValue(makeHistory(5));
+  });
+
+  describe('handleToolRequest', () => {
+    it('handles pulselive_check', async () => {
+      mockDeps = makeMockDeps([
+        { type: 'ci', status: 'success', message: 'CI passing' }
+      ]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_check');
+      expect(result.schema_version).toBe('1.0.0');
+      expect(result.results).toBeDefined();
+      expect(Array.isArray(result.results)).toBe(true);
     });
 
-    it('resolves relative paths to absolute', () => {
-      const result = validateDir('relative/path');
-      expect(result.startsWith('/')).toBe(true);
+    it('handles pulselive_quick', async () => {
+      mockDeps = makeMockDeps([
+        { type: 'ci', status: 'success', message: 'CI passing' }
+      ]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_quick');
+      expect(result.schema_version).toBe('1.0.0');
+      expect(result.quick).toBe(true);
     });
 
-    it('allows valid absolute paths', () => {
-      expect(validateDir('/home/user/project')).toBe('/home/user/project');
+    it('handles pulselive_ci', async () => {
+      mockDeps = makeMockDeps([
+        { type: 'ci', status: 'success', message: 'CI passing' }
+      ]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_ci');
+      expect(result.schema_version).toBe('1.0.0');
+      expect(result.type).toBe('ci');
     });
 
-    it('normalizes . segments correctly', () => {
-      expect(validateDir('/home/user/./project')).toBe('/home/user/project');
+    it('handles pulselive_health', async () => {
+      mockDeps = makeMockDeps([
+        { type: 'health', status: 'success', message: 'All healthy' }
+      ]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_health');
+      expect(result.schema_version).toBe('1.0.0');
+    });
+
+    it('handles pulselive_deps', async () => {
+      mockDeps = makeMockDeps([
+        { type: 'deps', status: 'warning', message: 'Outdated' }
+      ]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_deps');
+      expect(result.schema_version).toBe('1.0.0');
+    });
+
+    it('handles pulselive_summary', async () => {
+      mockDeps = makeMockDeps([
+        { type: 'ci', status: 'success', message: 'CI passing' },
+        { type: 'deps', status: 'success', message: 'Deps OK' }
+      ]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_summary');
+      expect(result.schema_version).toBe('1.0.0');
+    });
+
+    it('handles pulselive_trends', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_trends');
+      expect(result.available).toBe(true);
+      expect(result.trends).toBeDefined();
+    });
+
+    it('handles pulselive_trends with checkType', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_trends', undefined, { checkType: 'ci' });
+      expect(result.available).toBe(true);
+    });
+
+    it('handles pulselive_anomalies', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_anomalies');
+      expect(result.available).toBe(true);
+      expect(Array.isArray(result.anomalies)).toBe(true);
+    });
+
+    it('handles pulselive_metrics', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_metrics');
+      expect(result.available).toBe(true);
+    });
+
+    it('handles pulselive_telemetry summary format', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_telemetry', undefined, { format: 'summary' });
+      expect(result.schema_version).toBe('1.0.0');
+      expect(result.otel_available).toBeDefined();
+    });
+
+    it('handles pulselive_telemetry full format', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_telemetry', undefined, { format: 'full' });
+      expect(result.schema_version).toBe('1.0.0');
+      expect(result.otel).toBeDefined();
+    });
+
+    it('throws on unknown tool', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      await expect(server.handleToolRequest('unknown_tool')).rejects.toThrow('Unknown tool');
+    });
+
+    it('handles pulselive_check with includeTrends', async () => {
+      mockDeps = makeMockDeps([
+        { type: 'ci', status: 'success', message: 'CI passing' }
+      ]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_check', undefined, { includeTrends: true });
+      expect(result.schema_version).toBe('1.0.0');
+      // Trends should be included when history is available
+      if (result.trends) {
+        expect(result.trends).toBeDefined();
+      }
     });
   });
 
-  describe('VALID_TOOLS constant', () => {
-    it('includes all 9 expected MCP tools', () => {
-      const source = fs.readFileSync(helpersSourcePath, 'utf8');
-      const expectedTools = [
-        'pulselive_check', 'pulselive_ci', 'pulselive_health', 'pulselive_deps',
-        'pulselive_summary', 'pulselive_trends', 'pulselive_anomalies',
-        'pulselive_metrics', 'pulselive_recommend'
+  describe('pulselive_trends edge cases', () => {
+    it('returns no_history when empty', async () => {
+      vi.spyOn(MCPServer.prototype as any, 'loadHistory').mockReturnValue([]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_trends');
+      expect(result.available).toBe(false);
+      expect(result.reason).toBe('no_history');
+    });
+  });
+
+  describe('pulselive_anomalies edge cases', () => {
+    it('returns empty when no history', async () => {
+      vi.spyOn(MCPServer.prototype as any, 'loadHistory').mockReturnValue([]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_anomalies');
+      expect(result.available).toBe(false);
+      expect(result.anomalies).toEqual([]);
+    });
+  });
+
+  describe('pulselive_metrics edge cases', () => {
+    it('returns unavailable when no history', async () => {
+      vi.spyOn(MCPServer.prototype as any, 'loadHistory').mockReturnValue([]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_metrics');
+      expect(result.available).toBe(false);
+    });
+
+    it('returns metrics for specific check type', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_metrics', undefined, { checkType: 'ci' });
+      expect(result.available).toBe(true);
+      expect(result.checkType).toBe('ci');
+    });
+  });
+
+  describe('constructor', () => {
+    it('creates server with custom deps', () => {
+      const s = new MCPServer(configLoader, 8080, mockDeps);
+      expect(s).toBeDefined();
+    });
+
+    it('creates server with default deps', () => {
+      const s = new MCPServer(configLoader);
+      expect(s).toBeDefined();
+    });
+  });
+
+  describe('pulselive_status', () => {
+    it('returns healthy null when no history', async () => {
+      vi.spyOn(MCPServer.prototype as any, 'loadHistory').mockReturnValue([]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_status');
+      expect(result.healthy).toBeNull();
+    });
+
+    it('returns healthy true when no errors', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_status');
+      expect(result.healthy).toBe(true);
+    });
+  });
+
+  describe('pulselive_recommend', () => {
+    it('returns recommendations ranked by severity', async () => {
+      mockDeps = makeMockDeps([
+        { type: 'ci', status: 'warning', message: 'Flaky CI' },
+        { type: 'deps', status: 'success', message: 'OK' },
+        { type: 'git', status: 'error', message: 'Uncommitted changes' }
+      ]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_recommend');
+      expect(result.recommendations).toBeDefined();
+      expect(Array.isArray(result.recommendations)).toBe(true);
+      expect(result.totalRecommendations).toBeDefined();
+    });
+
+    it('returns empty recommendations when all healthy', async () => {
+      mockDeps = makeMockDeps([
+        { type: 'ci', status: 'success', message: 'OK' },
+        { type: 'deps', status: 'success', message: 'OK' }
+      ]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_recommend');
+      expect(result.recommendations).toBeDefined();
+    });
+  });
+
+  describe('computeMultiRepoSummary', () => {
+    it('computes summary from multi-repo results', () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+      const results = [
+        { repo: 'org/repo1', results: [{ type: 'ci', status: 'success', message: 'OK' }] },
+        { repo: 'org/repo2', results: [{ type: 'ci', status: 'error', message: 'FAIL' }] },
+        { repo: 'org/repo3', results: [{ type: 'ci', status: 'warning', message: 'WARN' }], error: 'timeout' }
       ];
-      expectedTools.forEach(tool => {
-        expect(source).toContain(`'${tool}'`);
-      });
+      const summary = (server as any).computeMultiRepoSummary(results);
+      expect(summary.overallStatus).toBe('critical');
+      expect(summary.reposWithErrors).toBeGreaterThanOrEqual(1);
     });
   });
 
-  describe('enrichResult pattern', () => {
-    it('maps status to severity correctly', () => {
-      const severityMap: Record<string, string> = {
-        'error': 'critical', 'warning': 'warning', 'success': 'info',
+  describe('pulselive_trends edge cases', () => {
+    it('handles trends with no history', async () => {
+      vi.spyOn(MCPServer.prototype as any, 'loadHistory').mockReturnValue([]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_trends');
+      expect(result.available).toBe(false);
+    });
+  });
+
+  describe('pulselive_metrics with checkType', () => {
+    it('returns metrics for specific check type', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_metrics', undefined, { checkType: 'ci' });
+      expect(result.available).toBe(true);
+      expect(result.checkType).toBe('ci');
+    });
+  });
+
+  describe('pulselive_multi_repo', () => {
+    it('requires repos parameter', async () => {
+      server = new MCPServer(configLoader, 3000, mockDeps);
+      await expect(server.handleToolRequest('pulselive_multi_repo')).rejects.toThrow('Missing required parameter');
+    });
+
+    it('handles pulselive_check with repos', async () => {
+      mockDeps = makeMockDeps([
+        { type: 'ci', status: 'success', message: 'OK' }
+      ]);
+      server = new MCPServer(configLoader, 3000, mockDeps);
+
+      const result = await server.handleToolRequest('pulselive_check', undefined, { repos: 'org/repo1,org/repo2' });
+      expect(result.schema_version).toBe('1.0.0');
+      expect(result.repos).toBeDefined();
+    });
+  });
+
+  describe('error handling', () => {
+    it('scanner error produces error in multi-repo result', async () => {
+      const mockScanner = {
+        runAllChecks: vi.fn().mockRejectedValue(new Error('API rate limit')),
+        runQuickChecks: vi.fn().mockRejectedValue(new Error('API rate limit')),
+        runSingleCheck: vi.fn().mockRejectedValue(new Error('API rate limit')),
       };
-      expect(severityMap['error']).toBe('critical');
-      expect(severityMap['warning']).toBe('warning');
-      expect(severityMap['success']).toBe('info');
-    });
+      mockDeps = {
+        createScanner: vi.fn().mockReturnValue(mockScanner),
+        createConfigLoader: vi.fn().mockReturnValue({
+          autoDetect: vi.fn().mockReturnValue({ github: { repo: 'test/repo' }, checks: { ci: true } }),
+          getConfig: vi.fn().mockReturnValue({}),
+        }),
+      };
+      server = new MCPServer(configLoader, 3000, mockDeps);
 
-    it('sets confidence based on status', () => {
-      const getConfidence = (status: string) => status === 'success' ? 'high' : 'medium';
-      expect(getConfidence('success')).toBe('high');
-      expect(getConfidence('error')).toBe('medium');
-    });
-  });
-
-  describe('CORS configuration', () => {
-    it('source code sets correct CORS headers', () => {
-      const source = fs.readFileSync(serverSourcePath, 'utf8');
-      expect(source).toContain('Access-Control-Allow-Origin');
-      expect(source).toContain('Access-Control-Allow-Methods');
-      expect(source).toContain('OPTIONS');
-    });
-  });
-
-  describe('missing tool parameter handling', () => {
-    it('source code returns specific error message for missing tool parameter', () => {
-      const source = fs.readFileSync(serverSourcePath, 'utf8');
-      expect(source).toContain('Missing required parameter: tool');
-    });
-  });
-
-  describe('tool parameter validation', () => {
-    it('source code validates required parameters for each tool', () => {
-      const source = fs.readFileSync(serverSourcePath, 'utf8');
-      expect(source).toContain('getRequiredParamsForTool');
-      expect(source).toContain("Missing required parameter 'dir' for tool");
-    });
-
-    it('defines required parameters for directory-based tools', () => {
-      const source = fs.readFileSync(helpersSourcePath, 'utf8');
-      const toolsWithDir = ['pulselive_check', 'pulselive_quick', 'pulselive_ci', 'pulselive_health', 'pulselive_deps', 'pulselive_summary', 'pulselive_recommend'];
-      toolsWithDir.forEach(tool => {
-        expect(source).toContain(`'${tool}': ['dir']`);
-      });
-    });
-
-    it('defines no required parameters for trend-based tools', () => {
-      const source = fs.readFileSync(helpersSourcePath, 'utf8');
-      const toolsWithoutDir = ['pulselive_trends', 'pulselive_anomalies', 'pulselive_metrics'];
-      toolsWithoutDir.forEach(tool => {
-        expect(source).toContain(`'${tool}': []`);
-      });
-    });
-  });
-
-  describe('MCP server startup', () => {
-    it('mcp command is registered in CLI', () => {
-      const source = fs.readFileSync(indexPath, 'utf8');
-      expect(source).toContain("command('mcp')");
+      await expect(server.handleToolRequest('pulselive_check')).rejects.toThrow();
     });
   });
 });

@@ -4,6 +4,25 @@ import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 import fetch from 'node-fetch';
 
+/**
+ * Dependency injection interface for CoverageCheck.
+ * Injects fetch and filesystem for testability.
+ */
+export interface CoverageDeps {
+  fetch: (url: string, init?: any) => Promise<any>;
+  readFile: (path: string) => string;
+  existsSync: (path: string) => boolean;
+}
+
+/**
+ * Default implementation using real node-fetch and fs.
+ */
+export const defaultCoverageDeps: CoverageDeps = {
+  fetch: fetch as any,
+  readFile: (p) => readFileSync(p, 'utf8'),
+  existsSync: (p) => existsSync(p),
+};
+
 interface CoverageSummary {
   total: {
     lines: number;
@@ -24,9 +43,11 @@ interface LcovData {
 
 export class CoverageCheck {
   private config: PulseliveConfig;
+  private deps: CoverageDeps;
 
-  constructor(config: PulseliveConfig) {
+  constructor(config: PulseliveConfig, deps: CoverageDeps = defaultCoverageDeps) {
     this.config = config;
+    this.deps = deps;
   }
 
   async run(): Promise<CheckResult> {
@@ -92,7 +113,7 @@ export class CoverageCheck {
     // Fall back to local coverage files
     // Try Istanbul/nyc coverage-summary.json first
     const istanbulPath = path.join('coverage', 'coverage-summary.json');
-    if (existsSync(istanbulPath)) {
+    if (this.deps.existsSync(istanbulPath)) {
       try {
         const summary = this.parseIstanbulCoverage(istanbulPath);
         if (summary) return { ...summary, source: 'istanbul' };
@@ -103,7 +124,7 @@ export class CoverageCheck {
 
     // Try alternative Istanbul location
     const istanbulAltPath = path.join('coverage', 'coverage-final.json');
-    if (existsSync(istanbulAltPath)) {
+    if (this.deps.existsSync(istanbulAltPath)) {
       try {
         const summary = this.parseIstanbulCoverage(istanbulAltPath);
         if (summary) return { ...summary, source: 'istanbul' };
@@ -114,7 +135,7 @@ export class CoverageCheck {
 
     // Try .nyc_output/out.json
     const nycOutputPath = path.join('.nyc_output', 'out.json');
-    if (existsSync(nycOutputPath)) {
+    if (this.deps.existsSync(nycOutputPath)) {
       try {
         const summary = this.parseIstanbulCoverage(nycOutputPath);
         if (summary) return { ...summary, source: 'nyc' };
@@ -125,7 +146,7 @@ export class CoverageCheck {
 
     // Try lcov.info
     const lcovPath = path.join('coverage', 'lcov.info');
-    if (existsSync(lcovPath)) {
+    if (this.deps.existsSync(lcovPath)) {
       try {
         const lcovData = this.parseLcovCoverage(lcovPath);
         if (lcovData) return { ...lcovData, source: 'lcov' };
@@ -136,7 +157,7 @@ export class CoverageCheck {
 
     // Try alternative lcov location
     const lcovAltPath = path.join('lcov.info');
-    if (existsSync(lcovAltPath)) {
+    if (this.deps.existsSync(lcovAltPath)) {
       try {
         const lcovData = this.parseLcovCoverage(lcovAltPath);
         if (lcovData) return { ...lcovData, source: 'lcov' };
@@ -147,7 +168,7 @@ export class CoverageCheck {
 
     // Try Clover XML
     const cloverPath = path.join('coverage', 'clover.xml');
-    if (existsSync(cloverPath)) {
+    if (this.deps.existsSync(cloverPath)) {
       try {
         const cloverData = this.parseCloverCoverage(cloverPath);
         if (cloverData) return { ...cloverData, source: 'clover' };
@@ -158,7 +179,7 @@ export class CoverageCheck {
 
     // Try Jest coverage json
     const jestPath = path.join('coverage', 'coverage.json');
-    if (existsSync(jestPath)) {
+    if (this.deps.existsSync(jestPath)) {
       try {
         const summary = this.parseJestCoverage(jestPath);
         if (summary) return { ...summary, source: 'jest' };
@@ -170,11 +191,6 @@ export class CoverageCheck {
     return null;
   }
 
-  /**
-   * Fetch coverage from remote providers: Codecov and Coveralls.
-   * These are public APIs that don't require tokens for public repos,
-   * but tokens are supported for private repos.
-   */
   private async fetchRemoteCoverage(): Promise<{
     lines?: number;
     statements?: number;
@@ -184,7 +200,6 @@ export class CoverageCheck {
   } | null> {
     const remote = this.config.checks?.coverage?.remote;
     const repo = this.config.github?.repo;
-    const token = this.config.github?.token;
 
     if (!repo) return null;
 
@@ -231,11 +246,6 @@ export class CoverageCheck {
     return null;
   }
 
-  /**
-   * Fetch coverage from Codecov API.
-   * Tries the v5 commits endpoint which includes totals.coverage,
-   * then falls back to v2 repo-level coverage.
-   */
   private async fetchCodecov(repo: string, token?: string): Promise<number | null> {
     const [owner, name] = repo.split('/');
     
@@ -245,7 +255,7 @@ export class CoverageCheck {
     // Try v5 commits endpoint (includes coverage totals)
     try {
       const commitsUrl = `https://api.codecov.io/api/v5/github/${owner}/repos/${name}/commits?limit=1`;
-      const response = await fetch(commitsUrl, { headers, signal: AbortSignal.timeout(5000) as any });
+      const response = await this.deps.fetch(commitsUrl, { headers, signal: AbortSignal.timeout(5000) as any });
       if (response.ok) {
         const data: any = await response.json();
         const latestCommit = data?.results?.[0];
@@ -261,7 +271,7 @@ export class CoverageCheck {
     // Fallback: try v2 repo endpoint
     try {
       const repoUrl = `https://api.codecov.io/api/v2/github/${owner}/repos/${name}`;
-      const response = await fetch(repoUrl, { headers, signal: AbortSignal.timeout(5000) as any });
+      const response = await this.deps.fetch(repoUrl, { headers, signal: AbortSignal.timeout(5000) as any });
       if (response.ok) {
         const data: any = await response.json();
         const coverage = data?.latest_commit?.totals?.coverage;
@@ -276,15 +286,11 @@ export class CoverageCheck {
     return null;
   }
 
-  /**
-   * Fetch coverage from Coveralls API.
-   * Public repos: https://coveralls.io/github/{owner}/{repo}.json
-   */
   private async fetchCoveralls(repo: string): Promise<number | null> {
     const [owner, name] = repo.split('/');
     const url = `https://coveralls.io/github/${owner}/${name}.json`;
 
-    const response = await fetch(url, {
+    const response = await this.deps.fetch(url, {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(5000) as any
     });
@@ -306,10 +312,9 @@ export class CoverageCheck {
     branches: number;
   } | null {
     try {
-      const content = readFileSync(filePath, 'utf8');
+      const content = this.deps.readFile(filePath);
       const coverageData = JSON.parse(content);
       
-      // Jest coverage format has totals field
       if (coverageData?.totals) {
         return {
           lines: coverageData.totals.lines.pct,
@@ -332,7 +337,7 @@ export class CoverageCheck {
     branches: number;
   } | null {
     try {
-      const content = readFileSync(filePath, 'utf8');
+      const content = this.deps.readFile(filePath);
       const summary = JSON.parse(content) as CoverageSummary;
       
       return {
@@ -352,7 +357,7 @@ export class CoverageCheck {
     branches: number;
   } | null {
     try {
-      const content = readFileSync(filePath, 'utf8');
+      const content = this.deps.readFile(filePath);
       const lines = content.split('\n');
       
       let lcovData: LcovData = {
@@ -396,7 +401,7 @@ export class CoverageCheck {
     methods: number;
   } | null {
     try {
-      const content = readFileSync(filePath, 'utf8');
+      const content = this.deps.readFile(filePath);
       const metricsMatch = content.match(/<metrics[^>]*statements="(\d+)"[^>]*coveredstatements="(\d+)"[^>]*conditionals="(\d+)"[^>]*coveredconditionals="(\d+)"[^>]*methods="(\d+)"[^>]*coveredmethods="(\d+)"/);
       
       if (metricsMatch) {

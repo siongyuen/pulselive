@@ -1,31 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { HealthCheck } from '../../src/checks/health';
+import { HealthCheck, HealthDeps, defaultHealthDeps } from '../../src/checks/health';
 import { PulseliveConfig } from '../../src/config';
-import fetch from 'node-fetch';
-
-vi.mock('node-fetch');
-vi.mock('dns', () => ({
-  lookup: (_hostname: string, _opts: any, cb: Function) => {
-    // Default: resolve to a safe public IP for test domains
-    cb(null, [{ address: '203.0.113.1' }]);
-  }
-}));
 
 describe('HealthCheck', () => {
-  let healthCheck: HealthCheck;
   let config: PulseliveConfig;
+  let mockDeps: HealthDeps;
 
   beforeEach(() => {
     config = {};
-    healthCheck = new HealthCheck(config);
+    // Default DNS resolves to a safe public IP for test domains
+    mockDeps = {
+      fetch: vi.fn(),
+      dnsLookup: vi.fn().mockResolvedValue(['203.0.113.1']),
+    };
   });
 
   it('should return warning when no endpoints configured', async () => {
-    const result = await healthCheck.run();
-    
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('health');
     expect(result.status).toBe('warning');
     expect(result.message).toContain('No health endpoints configured');
+    expect(mockDeps.fetch).not.toHaveBeenCalled();
   });
 
   it('should handle successful endpoint checks', async () => {
@@ -35,14 +32,11 @@ describe('HealthCheck', () => {
         { name: 'Admin', url: 'https://admin.example.com/health' }
       ]
     };
-    healthCheck = new HealthCheck(config);
-    
-    (fetch as any).mockResolvedValue({
-      status: 200
-    });
-    
-    const result = await healthCheck.run();
-    
+    mockDeps.fetch.mockResolvedValue({ status: 200 });
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('health');
     expect(result.status).toBe('success');
     expect(result.message).toContain('All endpoints healthy');
@@ -55,18 +49,17 @@ describe('HealthCheck', () => {
         { name: 'Broken', url: 'https://broken.example.com/health' }
       ]
     };
-    healthCheck = new HealthCheck(config);
-    
-    (fetch as any).mockImplementation((url: string) => {
+    mockDeps.fetch.mockImplementation((url: string) => {
       if (url.includes('api.example.com')) {
         return Promise.resolve({ status: 200 });
       } else {
         return Promise.resolve({ status: 500 });
       }
     });
-    
-    const result = await healthCheck.run();
-    
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
     expect(result.message).toContain('endpoint(s) failed');
@@ -79,18 +72,17 @@ describe('HealthCheck', () => {
         { name: 'NotFound', url: 'https://notfound.example.com/health' }
       ]
     };
-    healthCheck = new HealthCheck(config);
-    
-    (fetch as any).mockImplementation((url: string) => {
+    mockDeps.fetch.mockImplementation((url: string) => {
       if (url.includes('api.example.com')) {
         return Promise.resolve({ status: 200 });
       } else {
         return Promise.resolve({ status: 404 });
       }
     });
-    
-    const result = await healthCheck.run();
-    
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('health');
     expect(result.status).toBe('warning');
     expect(result.message).toContain('Some endpoints have issues');
@@ -102,12 +94,11 @@ describe('HealthCheck', () => {
         { name: 'Down', url: 'https://down.example.com/health', timeout: 1000 }
       ]
     };
-    healthCheck = new HealthCheck(config);
-    
-    (fetch as any).mockRejectedValue(new Error('ECONNREFUSED'));
-    
-    const result = await healthCheck.run();
-    
+    mockDeps.fetch.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
     expect(result.message).toContain('failed');
@@ -119,14 +110,16 @@ describe('HealthCheck', () => {
         { name: 'Local', url: 'http://localhost:9999/health' }
       ]
     };
-    healthCheck = new HealthCheck(config);
-    
-    const result = await healthCheck.run();
-    
+    // localhost resolves to 127.0.0.1 — blocked
+    mockDeps.dnsLookup.mockResolvedValue(['127.0.0.1']);
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
-    // The endpoint should be blocked before fetch is even called
     expect(result.message).toContain('endpoint(s) failed');
+    expect(mockDeps.fetch).not.toHaveBeenCalled();
   });
 
   it('should block cloud metadata endpoints (SSRF protection)', async () => {
@@ -135,10 +128,10 @@ describe('HealthCheck', () => {
         { name: 'Metadata', url: 'http://169.254.169.254/latest/meta-data/' }
       ]
     };
-    healthCheck = new HealthCheck(config);
-    
-    const result = await healthCheck.run();
-    
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
   });
@@ -149,10 +142,10 @@ describe('HealthCheck', () => {
       url: `https://api${i}.example.com/health`
     }));
     config.health = { endpoints };
-    healthCheck = new HealthCheck(config);
-    
-    const result = await healthCheck.run();
-    
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
     expect(result.message).toContain('Too many endpoints');
@@ -165,12 +158,13 @@ describe('HealthCheck', () => {
         { name: 'Local API', url: 'http://localhost:3000/health' }
       ]
     };
-    healthCheck = new HealthCheck(config);
-    
-    (fetch as any).mockResolvedValue({ status: 200 });
-    
-    const result = await healthCheck.run();
-    
+    // With allow_local, localhost resolves to 127.0.0.1 which is allowed
+    mockDeps.dnsLookup.mockResolvedValue(['127.0.0.1']);
+    mockDeps.fetch.mockResolvedValue({ status: 200 });
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('health');
     expect(result.status).toBe('success');
     expect(result.message).toContain('All endpoints healthy');
@@ -183,10 +177,10 @@ describe('HealthCheck', () => {
         { name: 'Metadata', url: 'http://169.254.169.254/latest/meta-data/' }
       ]
     };
-    healthCheck = new HealthCheck(config);
-    
-    const result = await healthCheck.run();
-    
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
   });
@@ -197,9 +191,9 @@ describe('HealthCheck', () => {
         { name: 'AWS IPv6 Meta', url: 'http://[fd00:ec2::254]/latest/meta-data/' }
       ]
     };
-    healthCheck = new HealthCheck(config);
 
-    const result = await healthCheck.run();
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
 
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
@@ -211,9 +205,9 @@ describe('HealthCheck', () => {
         { name: 'LinkLocal', url: 'http://[fe80::1]/health' }
       ]
     };
-    healthCheck = new HealthCheck(config);
 
-    const result = await healthCheck.run();
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
 
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
@@ -225,11 +219,49 @@ describe('HealthCheck', () => {
         { name: 'ULA', url: 'http://[fc00::1]/health' }
       ]
     };
-    healthCheck = new HealthCheck(config);
 
-    const result = await healthCheck.run();
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
 
     expect(result.type).toBe('health');
     expect(result.status).toBe('error');
+  });
+
+  it('should use defaultHealthDeps when no deps provided', () => {
+    const check = new HealthCheck(config);
+    expect(check).toBeInstanceOf(HealthCheck);
+  });
+
+  it('should handle DNS lookup failure gracefully', async () => {
+    config.health = {
+      endpoints: [
+        { name: 'API', url: 'https://unresolvable.example.com/health' }
+      ]
+    };
+    mockDeps.dnsLookup.mockResolvedValue([]); // DNS fails → empty
+    mockDeps.fetch.mockResolvedValue({ status: 200 });
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
+    // Should still work — DNS failure is not a block, fetch will fail naturally
+    expect(result.type).toBe('health');
+    expect(result.status).toBe('success');
+  });
+
+  it('should block hostname that resolves to blocked IP', async () => {
+    config.health = {
+      endpoints: [
+        { name: 'Internal', url: 'https://internal.corp/health' }
+      ]
+    };
+    mockDeps.dnsLookup.mockResolvedValue(['10.0.0.1']); // Resolves to private IP
+
+    const check = new HealthCheck(config, mockDeps);
+    const result = await check.run();
+
+    expect(result.type).toBe('health');
+    expect(result.status).toBe('error');
+    expect(mockDeps.fetch).not.toHaveBeenCalled();
   });
 });
