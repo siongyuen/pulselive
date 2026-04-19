@@ -9,6 +9,8 @@ import { VERSION } from './version';
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import path from 'path';
 import os from 'os';
+import { PulseliveConfig } from './config';
+import { Scanner } from './scanner';
 
 export interface FixResult {
   target: string;
@@ -370,5 +372,129 @@ export function saveHistory(results: CheckResult[]): void {
     writeFileSync(filePath, JSON.stringify(historyEntry, null, 2));
   } catch {
     // Silent fail - history is best-effort
+  }
+}
+
+// ── Multi-repo check ───
+
+export async function handleMultiRepoCheck(reposString: string, options: { json?: boolean; quick?: boolean; exitCode?: boolean }): Promise<void> {
+  const repoList = reposString.split(',').map(r => r.trim()).filter(r => r.length > 0);
+  
+  if (repoList.length === 0) {
+    console.error('❌ No valid repositories specified');
+    process.exit(1);
+  }
+  
+  const startTime = Date.now();
+  const results: Array<{
+    repo: string;
+    results: CheckResult[];
+    error?: string;
+  }> = [];
+  
+  // Process each repository
+  for (const repo of repoList) {
+    try {
+      // Create a temporary config for this repo
+      const tempConfig: PulseliveConfig = {
+        github: {
+          repo: repo,
+          token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+        },
+        checks: {
+          ci: true,
+          deps: !options.quick,
+          git: true,
+          health: true,
+          issues: true,
+          prs: true,
+          deploy: true,
+          coverage: !options.quick ? { enabled: true, threshold: 80 } : { enabled: false }
+        }
+      };
+      
+      const scanner = new Scanner(tempConfig);
+      const checkResults: CheckResult[] = options.quick 
+        ? await scanner.runQuickChecks()
+        : await scanner.runAllChecks();
+      
+      results.push({
+        repo: repo,
+        results: checkResults
+      });
+      
+    } catch (error: any) {
+      results.push({
+        repo: repo,
+        results: [],
+        error: error.message || 'Unknown error'
+      });
+    }
+  }
+  
+  const totalDuration = Date.now() - startTime;
+  
+  if (options.json) {
+    const overallSummary = computeMultiRepoSummary(results);
+    
+    console.log(JSON.stringify({
+      schema_version: "1.0.0",
+      schema_url: "https://github.com/siongyuen/pulselive/blob/master/SCHEMA.md",
+      version: VERSION,
+      timestamp: new Date().toISOString(),
+      duration: totalDuration,
+      quick: !!options.quick,
+      repos: results.map(r => ({
+        repo: r.repo,
+        results: r.results.map(check => mapToSchemaResult(check)),
+        error: r.error
+      })),
+      summary: overallSummary
+    }, null, 2));
+  } else {
+    // Table output
+    console.log('MULTI-REPO HEALTH CHECK');
+    console.log('=======================\n');
+    
+    // Header
+    console.log('Repo'.padEnd(30) + 'Status'.padEnd(10) + 'Critical'.padEnd(10) + 'Warnings'.padEnd(10) + 'Healthy');
+    console.log('-'.repeat(70));
+    
+    // Row for each repo
+    for (const result of results) {
+      if (result.error) {
+        console.log(result.repo.padEnd(30) + '❌ ERROR'.padEnd(10) + '-'.padEnd(10) + '-'.padEnd(10) + '-');
+        console.log(`  Error: ${result.error}`);
+      } else {
+        const critical = result.results.filter(r => r.status === 'error').length;
+        const warnings = result.results.filter(r => r.status === 'warning').length;
+        const healthy = result.results.filter(r => r.status === 'success').length;
+        const statusIcon = critical > 0 ? '❌' : warnings > 0 ? '⚠️' : '✅';
+        
+        console.log(result.repo.padEnd(30) + statusIcon.padEnd(10) + critical.toString().padEnd(10) + warnings.toString().padEnd(10) + healthy.toString());
+      }
+    }
+    
+    // Summary
+    const overallSummary = computeMultiRepoSummary(results);
+    console.log('\nSUMMARY');
+    console.log('-------');
+    console.log(`Total repos: ${results.length}`);
+    console.log(`Repos with errors: ${overallSummary.reposWithErrors}`);
+    console.log(`Repos with warnings: ${overallSummary.reposWithWarnings}`);
+    console.log(`Overall status: ${overallSummary.overallStatus}`);
+    console.log(`\n⏱  Total: ${totalDuration}ms`);
+  }
+  
+  // Exit codes for multi-repo
+  if (options.exitCode) {
+    const overallSummary = computeMultiRepoSummary(results);
+    if (overallSummary.reposWithErrors > 0) {
+      process.exit(1); // Critical issues found
+    } else if (overallSummary.reposWithWarnings > 0) {
+      process.exit(2); // Warnings only
+    } else {
+      process.exit(0); // All checks healthy
+    }
   }
 }
