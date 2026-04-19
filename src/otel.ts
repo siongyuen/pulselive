@@ -140,7 +140,8 @@ export function initOtel(config: PulseliveConfig): boolean {
           });
           resultCallback({ code: otelApi.SpanStatusCode.OK });
         },
-        shutdown: () => Promise.resolve()
+        shutdown: () => Promise.resolve(),
+        forceFlush: () => Promise.resolve()
       };
       
       logExporter = {
@@ -160,10 +161,27 @@ export function initOtel(config: PulseliveConfig): boolean {
       resource: resource
     });
     
+    // Create metric reader for file export
+    let metricReader;
+    if (protocol === 'file' && metricExporter) {
+      // Use a periodic exporting metric reader for file protocol
+      // Export every 5 seconds or on demand
+      const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+      metricReader = new PeriodicExportingMetricReader({
+        exporter: metricExporter,
+        exportIntervalMillis: 10000,
+        exportTimeoutMillis: 5000
+      });
+    }
+    
     // Create metric provider
     const meterProvider = new otelMetrics.MeterProvider({
-      resource: resource
+      resource: resource,
+      readers: metricReader ? [metricReader] : []
     });
+    
+    // Store metric reader for force flush
+    (meterProvider as any)._metricReader = metricReader;
     
     // Create meter
     const meter = meterProvider.getMeter('pulsetel');
@@ -303,7 +321,7 @@ export function exportResults(results: CheckResult[]): void {
         const logRecord = {
           body: result.message,
           severityText: result.severity,
-          severityNumber: otelApi.SeverityNumber.SEVERE,
+          severityNumber: 17, // SEVERE - using numeric value directly
           attributes: {
             check_type: result.type,
             severity: result.severity,
@@ -325,6 +343,37 @@ export function exportResults(results: CheckResult[]): void {
 
   } catch (error) {
     console.error('[pulsetel-otel] Failed to export results:', error);
+  }
+}
+
+/**
+ * Force flush metrics to exporters (useful for testing)
+ */
+export async function forceFlushOtel(): Promise<void> {
+  if (!state.isInitialized || !state.meterProvider) {
+    return;
+  }
+
+  try {
+    // Force flush via metric reader if available
+    const reader = (state.meterProvider as any)._metricReader;
+    if (reader) {
+      // Try to manually trigger a collection
+      if (typeof reader.collect === 'function') {
+        await reader.collect();
+      }
+      // Also try to force flush the reader
+      if (typeof reader.forceFlush === 'function') {
+        await reader.forceFlush();
+      }
+    }
+    
+    // Also try meter provider forceFlush if supported
+    if (typeof state.meterProvider.forceFlush === 'function') {
+      await state.meterProvider.forceFlush();
+    }
+  } catch (error) {
+    console.error('[pulsetel-otel] Failed to force flush:', error);
   }
 }
 
