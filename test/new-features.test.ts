@@ -6,6 +6,21 @@ import fs from 'fs';
 import path from 'path';
 
 describe('New Features', () => {
+  // Clean up history before and after trend-related tests to avoid interference
+  const historyDir = path.join(__dirname, '..', '.pulsetel-history');
+  
+  beforeEach(() => {
+    if (fs.existsSync(historyDir)) {
+      fs.rmSync(historyDir, { recursive: true });
+    }
+  });
+  
+  afterEach(() => {
+    if (fs.existsSync(historyDir)) {
+      fs.rmSync(historyDir, { recursive: true });
+    }
+  });
+
   describe('Config Validation', () => {
     it('should validate config and print warnings for invalid keys', () => {
       const testConfigPath = path.join(__dirname, 'test-invalid-config.yml');
@@ -175,11 +190,7 @@ checks:
 
   describe('Trend Analysis Cold Start Guidance', () => {
     it('should show insufficient data message for trends with < 3 data points', () => {
-      // Clear history first
-      const historyDir = path.join(__dirname, '..', '.pulsetel-history');
-      if (fs.existsSync(historyDir)) {
-        fs.rmSync(historyDir, { recursive: true });
-      }
+      // History cleared by beforeEach
       
       // Run one check to create minimal history
       execSync('node dist/index.js check', { 
@@ -201,11 +212,7 @@ checks:
     });
 
     it('should show insufficient data message for anomalies with < 5 data points', { timeout: 60000 }, () => {
-      // Clear history first
-      const historyDir = path.join(__dirname, '..', '.pulsetel-history');
-      if (fs.existsSync(historyDir)) {
-        fs.rmSync(historyDir, { recursive: true });
-      }
+      // History cleared by beforeEach
       
       // Run a few checks to create some history but not enough for anomalies
       for (let i = 0; i < 2; i++) {  // Reduced from 3 to 2 to save time
@@ -227,11 +234,7 @@ checks:
     });
 
     it('should allow trends to work normally with sufficient data', { timeout: 60000 }, () => {
-      // Clear history first
-      const historyDir = path.join(__dirname, '..', '.pulsetel-history');
-      if (fs.existsSync(historyDir)) {
-        fs.rmSync(historyDir, { recursive: true });
-      }
+      // History cleared by beforeEach
       
       // Run enough checks to have sufficient data
       for (let i = 0; i < 3; i++) {
