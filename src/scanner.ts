@@ -10,6 +10,9 @@ import { PRsCheck } from './checks/prs';
 import { SentryCheck } from './checks/sentry';
 import { WebhookNotifier } from './webhooks';
 import { initOtel, withOtelSpan, exportResults, shutdownOtel } from './otel';
+import { generateAgentGuidance, AgentGuidance } from './agent-guidance.js';
+import { existsSync, readdirSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 export interface CheckResult {
   type: string;
@@ -21,6 +24,11 @@ export interface CheckResult {
   confidence?: 'low' | 'medium' | 'high';
   actionable?: string;
   context?: string;
+}
+
+export interface CheckResultWithGuidance {
+  results: CheckResult[];
+  _agent_guidance?: AgentGuidance;
 }
 
 /**
@@ -290,5 +298,52 @@ export class Scanner {
     }
 
     return results;
+  }
+
+  /**
+   * Run all checks with agent guidance.
+   * Returns results plus structured reasoning assistance for AI agents.
+   */
+  async runWithGuidance(): Promise<CheckResultWithGuidance> {
+    const results = await this.runAllChecks();
+    
+    // Load previous results for comparison
+    const previousResults = await this.loadPreviousResults();
+    
+    // Generate agent guidance
+    const guidance = generateAgentGuidance(results, previousResults);
+    
+    return {
+      results,
+      _agent_guidance: guidance
+    };
+  }
+
+  /**
+   * Load previous check results from history for comparison.
+   */
+  private async loadPreviousResults(): Promise<CheckResult[] | undefined> {
+    try {
+      const historyDir = join(this.workingDir, '.pulsetel-history');
+      if (!existsSync(historyDir)) {
+        return undefined;
+      }
+
+      const files = readdirSync(historyDir)
+        .filter(f => f.endsWith('.json') && f.startsWith('run-'))
+        .sort((a, b) => b.localeCompare(a));
+
+      if (files.length === 0) {
+        return undefined;
+      }
+
+      const latestFile = join(historyDir, files[0]);
+      const content = readFileSync(latestFile, 'utf8');
+      const data = JSON.parse(content);
+      
+      return data.results || data;
+    } catch {
+      return undefined;
+    }
   }
 }
