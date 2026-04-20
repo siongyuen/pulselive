@@ -132,7 +132,7 @@ export class ConfigLoader {
     const config = this.getConfig();
     
     // Check for unknown top-level keys
-    const validTopLevelKeys = ['github', 'health', 'checks', 'webhooks'];
+    const validTopLevelKeys = ['github', 'health', 'checks', 'webhooks', 'otel', 'sentry'];
     const configKeys = Object.keys(config);
     
     for (const key of configKeys) {
@@ -230,6 +230,42 @@ export class ConfigLoader {
             warnings.push(`Invalid coverage provider: "${config.checks.coverage.remote.provider}" — expected "codecov" or "coveralls"`);
           }
         }
+      }
+    }
+    
+    // Validate otel section
+    if (config.otel) {
+      const otelKeys = Object.keys(config.otel);
+      const validOtelKeys = ['enabled', 'endpoint', 'protocol', 'service_name', 'export_dir'];
+      
+      for (const key of otelKeys) {
+        if (!validOtelKeys.includes(key)) {
+          warnings.push(`Unknown otel key: "${key}"`);
+        }
+      }
+      
+      if (config.otel.protocol && !['http', 'file'].includes(config.otel.protocol)) {
+        warnings.push(`Invalid otel protocol: "${config.otel.protocol}" — expected "http" or "file"`);
+      }
+    }
+    
+    // Validate sentry section
+    if (config.sentry) {
+      const sentryKeys = Object.keys(config.sentry);
+      const validSentryKeys = ['organization', 'project', 'token'];
+      
+      for (const key of sentryKeys) {
+        if (!validSentryKeys.includes(key)) {
+          warnings.push(`Unknown sentry key: "${key}"`);
+        }
+      }
+      
+      if (!config.sentry.organization) {
+        warnings.push(`Sentry config is missing required "organization" field`);
+      }
+      
+      if (!config.sentry.project) {
+        warnings.push(`Sentry config is missing required "project" field`);
       }
     }
     
