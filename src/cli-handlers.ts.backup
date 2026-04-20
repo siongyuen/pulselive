@@ -251,9 +251,9 @@ export class CLIHandlers {
       printTrendResult(trend);
     } else {
       const checkTypes = new Set<string>();
-      history.forEach((entry: any) => {
-        entry.results.forEach((r: any) => checkTypes.add(r.type));
-      });
+        history.forEach((entry: any) => {
+          entry.results.forEach((r: any) => checkTypes.add(r.type));
+        });
 
       this.deps.log('TREND ANALYSIS');
       this.deps.log('==============\n');
@@ -518,8 +518,8 @@ export class CLIHandlers {
             report += `   - Details: ${JSON.stringify(warning.details)}\n`;
           }
           report += '\n';
-        });
-      }
+        }
+        );
 
       if (successes.length > 0) {
         report += '## Healthy Checks ✅\n\n';
@@ -557,35 +557,50 @@ export class CLIHandlers {
     }
   }
 
-
   /**
    * Handle the diff command
    */
   async handleDiffCommand(dir: string | undefined, options: CheckCommandOptions): Promise<void> {
-    const { PulsetelDiff } = await import('./diff/index.js');
+    // Import here to avoid circular deps during startup
+    const { PulseliveDiff } = await import('./diff/index.ts');
     const workingDir = dir || this.deps.cwd();
-    const configLoader = dir ? new ConfigLoader(dir + '/.pulsetel.yml') : new ConfigLoader();
+    const configLoader = this.deps.createConfigLoader
+      ? this.deps.createConfigLoader(dir ? dir + '/.pulsetel.yml' : undefined)
+      : (dir ? new ConfigLoader(dir + '/.pulsetel.yml') : new ConfigLoader());
     const config = configLoader.autoDetect(workingDir);
-    const diff = new PulsetelDiff(config, workingDir);
-    await diff.run({ format: options.json ? 'json' : 'text' });
+    const diff = new PulseliveDiff(config, workingDir);
+    
+    await diff.run({
+      format: options.json ? 'json' : 'text',
+      since: undefined, // TODO: add --since flag
+      limit: undefined  // TODO: add --limit flag
+    });
   }
 
   /**
    * Handle the guard command
    */
-  async handleGuardCommand(command: string, args: any, options: any): Promise<void> {
-    const { PulsetelGuard } = await import('./guard/index.js');
-    const workingDir = options.cwd || this.deps.cwd();
-    const configLoader = new ConfigLoader();
+  async handleGuardCommand(dir: string | undefined, options: CheckCommandOptions): Promise<void> {
+    // Import here to avoid circular deps during startup
+    const { PulsetelGuard } = await import('./guard/index.ts');
+    const workingDir = dir || this.deps.cwd();
+    const configLoader = this.deps.createConfigLoader
+      ? this.deps.createConfigLoader(dir ? dir + '/.pulsetel.yml' : undefined)
+      : (dir ? new ConfigLoader(dir + '/.pulsetel.yml') : new ConfigLoader());
     const config = configLoader.autoDetect(workingDir);
+    
+    // Guard needs the command to run - this should come from args
+    // For now, we'll expect it as the first argument after 'guard'
+    // This will be wired up in index.ts
     const guard = new PulsetelGuard(config, {
-      command,
-      args: args || [],
-      cwd: workingDir,
-      timeout: options.timeout ? parseInt(options.timeout) : 30000,
-      threshold: options.threshold ? parseFloat(options.threshold) : 20
+      command: '', // Will be set from args
+      args: [],
+      cwd: workingDir
     });
-    await guard.run();
+    
+    // TODO: Actually extract command from args in index.ts
+    this.deps.log('Guard command not yet fully implemented - waiting for args wiring');
+    return;
   }
 
   /**
@@ -642,7 +657,7 @@ export class CLIHandlers {
         return;
       }
 
-      // Ignore temporary files and common editor files
+      // Ign temporary files and common editor files
       if (filenameStr.endsWith('~') || filenameStr.endsWith('.swp') || filenameStr.endsWith('.tmp')) {
         return;
       }

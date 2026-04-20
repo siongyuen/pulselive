@@ -165,6 +165,30 @@ program
   });
 
 program
+  .command('diff')
+  .description('Show changes between runs - change intelligence')
+  .argument('[dir]', 'Directory to check')
+  .option('--json', 'Output results as JSON')
+  .option('--since <timestamp>', 'Compare with specific timestamp')
+  .option('--limit <n>', 'Limit comparison to last n runs')
+  .action(async (dir, options) => {
+    await cliHandlers.handleDiffCommand(dir, options);
+  });
+
+program
+  .command('guard')
+  .description('Run command with pre/post checks to detect drift')
+  .argument('<command>', 'Command to run')
+  .argument('[args...]', 'Arguments for the command')
+  .option('--cwd <dir>', 'Working directory')
+  .option('--timeout <ms>', 'Timeout in ms')
+  .option('--threshold <percent>', 'Threshold for drift warning')
+  .option('--json', 'Output results as JSON')
+  .action(async (command, args, options) => {
+    await cliHandlers.handleGuardCommand(command, args, options);
+  });
+
+program
   .command('mcp')
   .description('Start MCP server for AI agent integration')
   .action(() => {
