@@ -206,11 +206,14 @@ const header = this.getHeader(type);
         output += `    Divergence: ${result.details.divergence}\n`;
       } else if (result.type === 'deps' && result.details) {
         const vuln = result.details.vulnerabilities;
-        if (vuln.critical > 0 || vuln.high > 0) {
+        if (vuln && (vuln.critical > 0 || vuln.high > 0)) {
           output += `    ❌ ${vuln.critical + vuln.high} high/critical vulnerabilities\n`;
         }
         if (result.details.outdated > 0) {
           output += `    ⚠️  ${result.details.outdated} outdated packages\n`;
+        if (result.details.error) {
+          output += `    u2757  ${result.details.error}\n`;
+        }
         }
       } else if (result.type === 'prs' && result.details) {
         if (result.details.needsReview > 0) {

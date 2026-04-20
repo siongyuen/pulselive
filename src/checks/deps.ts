@@ -1,7 +1,7 @@
 import { PulseliveConfig } from '../config';
 import { CheckResult } from '../scanner';
 import { execFileSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 
 /**
@@ -11,6 +11,7 @@ import path from 'path';
 export interface DepsDeps {
   execFile: (command: string, args: string[], options: any) => string;
   existsSync: (path: string) => boolean;
+  readFileSync: (path: string, options?: { encoding?: string }) => string;
 }
 
 /**
@@ -21,6 +22,9 @@ export const defaultDepsDeps: DepsDeps = {
     return execFileSync(cmd, args, opts).toString();
   },
   existsSync: (p) => existsSync(p),
+  readFileSync: (path, options) => {
+    return readFileSync(path, options as any).toString();
+  }
 };
 
 export class DepsCheck {
@@ -40,6 +44,19 @@ export class DepsCheck {
       if (!hasPackageJson) {
         // Try other package managers
         return this.checkOtherPackageManagers();
+      }
+
+      // Validate package.json is valid JSON before proceeding
+      try {
+        const packageJsonContent = this.deps.readFileSync(packageJsonPath, { encoding: 'utf8' });
+        JSON.parse(packageJsonContent); // Validate JSON structure
+      } catch (error) {
+        return {
+          type: 'deps',
+          status: 'warning',
+          message: '⚠️ Invalid package.json — skipping dependency checks',
+          details: { error: 'Invalid JSON syntax in package.json' }
+        };
       }
 
       // Check npm vulnerabilities

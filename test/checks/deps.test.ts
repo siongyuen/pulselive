@@ -11,6 +11,7 @@ describe('DepsCheck', () => {
     mockDeps = {
       execFile: vi.fn(),
       existsSync: vi.fn(),
+      readFileSync: vi.fn(),
     };
   });
 
@@ -63,6 +64,12 @@ describe('DepsCheck', () => {
       return '';
     });
 
+    // Mock valid package.json for JSON validation
+    mockDeps.readFileSync.mockReturnValue(JSON.stringify({
+      name: 'test-package',
+      version: '1.0.0'
+    }));
+
     const check = new DepsCheck(config, mockDeps);
     const result = await check.run();
 
@@ -83,6 +90,12 @@ describe('DepsCheck', () => {
       return '';
     });
 
+    // Mock valid package.json for JSON validation
+    mockDeps.readFileSync.mockReturnValue(JSON.stringify({
+      name: test-package,
+      version: 1.0.0
+    }));
+
     const check = new DepsCheck(config, mockDeps);
     const result = await check.run();
 
@@ -102,6 +115,12 @@ describe('DepsCheck', () => {
       }
       return '';
     });
+
+    // Mock valid package.json for JSON validation
+    mockDeps.readFileSync.mockReturnValue(JSON.stringify({
+      name: test-package,
+      version: 1.0.0
+    }));
 
     const check = new DepsCheck(config, mockDeps);
     const result = await check.run();

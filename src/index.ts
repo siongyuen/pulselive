@@ -136,6 +136,33 @@ program
   });
 
 program
+  .command('sentry')
+  .description('Run Sentry checks standalone')
+  .argument('[dir]', 'Directory to check (defaults to current directory)')
+  .option('--json', 'Output results as JSON')
+  .action(async (dir, options) => {
+    await cliHandlers.handleSentryCommand(dir, options);
+  });
+
+program
+  .command('webhooks')
+  .description('List and test configured webhooks')
+  .option('--test', 'Test webhook delivery')
+  .option('--json', 'Output results as JSON')
+  .action(async (options) => {
+    await cliHandlers.handleWebhooksCommand(options);
+  });
+
+program
+  .command('health')
+  .description('Show overall health score and summary')
+  .argument('[dir]', 'Directory to check (defaults to current directory)')
+  .option('--json', 'Output results as JSON')
+  .action(async (dir, options) => {
+    await cliHandlers.handleHealthCommand(dir, options);
+  });
+
+program
   .command('status')
   .description('Lightweight health ping - reads most recent check result from history (no API calls)')
   .argument('[dir]', 'Directory to check (defaults to current directory)')

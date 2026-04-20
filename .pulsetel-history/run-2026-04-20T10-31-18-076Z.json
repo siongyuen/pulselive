@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-04-20T06:34:54.013Z",
+  "timestamp": "2026-04-20T10:31:18.076Z",
   "hostname": "openclaw",
   "pulsetel_version": "2.0.0",
   "results": [
@@ -7,19 +7,19 @@
       "type": "ci",
       "status": "warning",
       "message": "No GitHub token provided, skipping CI check",
-      "duration": 1,
+      "duration": 0,
       "metrics": {}
     },
     {
       "type": "health",
       "status": "warning",
       "message": "Some endpoints have issues (0 performance warning(s), avg 0ms)",
-      "duration": 534,
+      "duration": 504,
       "metrics": {
         "endpoints": [
           {
             "url": "https://httpbin.org/status/200",
-            "latency": 516,
+            "latency": 490,
             "status": 400
           }
         ]
@@ -29,9 +29,9 @@
       "type": "git",
       "status": "success",
       "message": "Git status: master branch",
-      "duration": 32,
+      "duration": 30,
       "metrics": {
-        "uncommitted": 11
+        "uncommitted": 9
       }
     },
     {
@@ -52,7 +52,7 @@
       "type": "coverage",
       "status": "error",
       "message": "Coverage: 59.5% (threshold: 80%) [lcov]",
-      "duration": 1402,
+      "duration": 1513,
       "metrics": {
         "percentage": 59.45216049382716
       }

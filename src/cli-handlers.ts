@@ -91,6 +91,19 @@ export interface WatchCommandOptions {
   verbose?: boolean;
 }
 
+export interface HealthCommandOptions {
+  json?: boolean;
+}
+
+export interface WebhooksCommandOptions {
+  test?: boolean;
+  json?: boolean;
+}
+
+export interface SentryCommandOptions {
+  json?: boolean;
+}
+
 export interface StatusCommandOptions {
   json?: boolean;
 }
@@ -403,6 +416,208 @@ export class CLIHandlers {
       }, null, 2));
     } else {
       this.deps.log(markdown);
+    }
+  }
+
+  /**
+   * Handle the sentry command
+   */
+  async handleSentryCommand(dir: string | undefined, options: SentryCommandOptions): Promise<void> {
+    const workingDir = dir || this.deps.cwd();
+    const configLoader = this.deps.createConfigLoader
+      ? this.deps.createConfigLoader(dir ? dir + '/.pulsetel.yml' : undefined)
+      : (dir ? new ConfigLoader(dir + '/.pulsetel.yml') : new ConfigLoader());
+    const config = configLoader.autoDetect(workingDir);
+    
+    const { SentryCheck } = await import('./checks/sentry.js');
+    const sentryCheck = new SentryCheck(config);
+    const result = await sentryCheck.run();
+
+    if (options.json) {
+      this.deps.log(JSON.stringify({
+        schema_version: "1.0.0",
+        schema_url: "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
+        version: VERSION,
+        timestamp: new Date().toISOString(),
+        type: result.type,
+        status: result.status,
+        message: result.message,
+        details: result.details
+      }, null, 2));
+    } else {
+      const statusIcon = result.status === 'success' ? '✅' : result.status === 'warning' ? '⚠️' : '❌';
+      this.deps.log(`${statusIcon} Sentry: ${result.message}`);
+      if (result.details) {
+        const details = result.details;
+        if (details.unresolved !== undefined) {
+          this.deps.log(`  Unresolved issues: ${details.unresolved}`);
+        }
+        if (details.totalEvents !== undefined) {
+          this.deps.log(`  Total events: ${details.totalEvents}`);
+        }
+        if (details.affectedUsers !== undefined) {
+          this.deps.log(`  Affected users: ${details.affectedUsers}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle the webhooks command
+   */
+  async handleWebhooksCommand(options: WebhooksCommandOptions): Promise<void> {
+    const configLoader = new ConfigLoader();
+    const config = configLoader.autoDetect();
+    const webhooks = (config as any).webhooks || [];
+
+    if (webhooks.length === 0) {
+      if (options.json) {
+        this.deps.log(JSON.stringify({
+          schema_version: "1.0.0",
+          schema_url: "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
+          version: VERSION,
+          timestamp: new Date().toISOString(),
+          webhooks: [],
+          message: "No webhooks configured"
+        }, null, 2));
+      } else {
+        this.deps.log('No webhooks configured');
+      }
+      return;
+    }
+
+    if (options.test) {
+      // Test webhook delivery
+      const { WebhookNotifier } = await import('./webhooks.js');
+      const notifier = new WebhookNotifier(config);
+      
+      // Create a test payload
+      const testPayload = {
+        event: 'test',
+        checkType: 'test',
+        details: { message: 'This is a test webhook from PulseTel' },
+        timestamp: new Date().toISOString(),
+        project: config.github?.repo || 'test-project',
+        severity: 'info' as const,
+        confidence: 'high' as const,
+        actionable: 'Webhook test successful',
+        context: 'Test notification from PulseTel CLI'
+      };
+
+      try {
+        await notifier.notify([{
+          type: 'test',
+          status: 'success',
+          message: 'Test webhook',
+          details: testPayload
+        }]);
+        
+        if (options.json) {
+          this.deps.log(JSON.stringify({
+            schema_version: "1.0.0",
+            schema_url: "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
+            version: VERSION,
+            timestamp: new Date().toISOString(),
+            webhooks: webhooks,
+            test_status: "success",
+            message: "Webhook test completed"
+          }, null, 2));
+        } else {
+          this.deps.log('✅ Webhook test completed successfully');
+        }
+      } catch (error: any) {
+        if (options.json) {
+          this.deps.log(JSON.stringify({
+            schema_version: "1.0.0",
+            schema_url: "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
+            version: VERSION,
+            timestamp: new Date().toISOString(),
+            webhooks: webhooks,
+            test_status: "error",
+            message: "Webhook test failed",
+            error: error.message
+          }, null, 2));
+        } else {
+          this.deps.log('❌ Webhook test failed:', error.message);
+        }
+      }
+    } else {
+      // List configured webhooks
+      if (options.json) {
+        this.deps.log(JSON.stringify({
+          schema_version: "1.0.0",
+          schema_url: "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
+          version: VERSION,
+          timestamp: new Date().toISOString(),
+          webhooks: webhooks
+        }, null, 2));
+      } else {
+        this.deps.log('Configured Webhooks:');
+        webhooks.forEach((webhook: any, index: number) => {
+          this.deps.log(`${index + 1}. ${webhook.url}`);
+          this.deps.log(`   Events: ${webhook.events.join(', ')}`);
+          if (webhook.secret) {
+            this.deps.log(`   Secret: [configured]`);
+          }
+          this.deps.log('');
+        });
+      }
+    }
+  }
+
+  /**
+   * Handle the health command
+   */
+  async handleHealthCommand(dir: string | undefined, options: HealthCommandOptions): Promise<void> {
+    const workingDir = dir || this.deps.cwd();
+    const configLoader = this.deps.createConfigLoader
+      ? this.deps.createConfigLoader(dir ? dir + '/.pulsetel.yml' : undefined)
+      : (dir ? new ConfigLoader(dir + '/.pulsetel.yml') : new ConfigLoader());
+    const config = configLoader.autoDetect(workingDir);
+    const scanner = this.deps.createScanner
+      ? this.deps.createScanner(config, workingDir)
+      : new Scanner(config, workingDir);
+
+    // Run checks to determine health score
+    const results: CheckResult[] = await scanner.runAllChecks();
+
+    // Calculate health score (0-100)
+    const critical = results.filter(r => r.status === 'error').length;
+    const warnings = results.filter(r => r.status === 'warning').length;
+    const totalChecks = results.length;
+    const successChecks = results.filter(r => r.status === 'success').length;
+
+    // Health score calculation: base score based on success rate, penalize for critical/warnings
+    const successRate = totalChecks > 0 ? successChecks / totalChecks : 0;
+    const baseScore = Math.round(successRate * 100);
+    
+    // Penalize for critical issues (20 points each, max 80)
+    const criticalPenalty = Math.min(critical * 20, 80);
+    // Penalize for warnings (5 points each, max 40)
+    const warningPenalty = Math.min(warnings * 5, 40);
+    
+    const healthScore = Math.max(0, baseScore - criticalPenalty - warningPenalty);
+
+    // Determine status
+    const status = healthScore >= 80 ? 'healthy' : healthScore >= 50 ? 'degraded' : 'critical';
+    const statusIcon = healthScore >= 80 ? '✅' : healthScore >= 50 ? '⚠️' : '❌';
+
+    if (options.json) {
+      this.deps.log(JSON.stringify({
+        schema_version: "1.0.0",
+        schema_url: "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
+        version: VERSION,
+        timestamp: new Date().toISOString(),
+        health_score: healthScore,
+        status: status,
+        critical: critical,
+        warnings: warnings,
+        total_checks: totalChecks,
+        success_checks: successChecks
+      }, null, 2));
+    } else {
+      this.deps.log(`${statusIcon} Health Score: ${healthScore}/100 (${status})`);
+      this.deps.log(`  Critical: ${critical}, Warnings: ${warnings}, Success: ${successChecks}/${totalChecks}`);
     }
   }
 
