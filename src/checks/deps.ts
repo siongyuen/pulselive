@@ -66,10 +66,21 @@ export class DepsCheck {
         }
 
         if (auditData?.vulnerabilities) {
+          // Map npm severity names to internal severity levels
+          // npm uses: 'critical', 'high', 'moderate', 'low', 'info'
+          // internal uses: 'critical', 'high', 'medium', 'low'
+          const severityMap: Record<string, keyof typeof vulnerabilities> = {
+            'critical': 'critical',
+            'high': 'high',
+            'moderate': 'medium',
+            'low': 'low',
+            'info': 'low'
+          };
           Object.values(auditData.vulnerabilities).forEach((vuln: any) => {
-            const severity = vuln.severity.toLowerCase();
-            if (severity in vulnerabilities) {
-              vulnerabilities[severity as keyof typeof vulnerabilities]++;
+            const severity = vuln.severity?.toLowerCase();
+            const mappedSeverity = severityMap[severity];
+            if (mappedSeverity) {
+              vulnerabilities[mappedSeverity]++;
             }
           });
         }

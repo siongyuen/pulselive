@@ -40,13 +40,13 @@ describe('DepsCheck', () => {
         err.stdout = JSON.stringify({
           vulnerabilities: {
             lodash: { severity: 'high' },
-            moment: { severity: 'medium' }
+            moment: { severity: 'moderate' }  // npm uses 'moderate', not 'medium'
           },
           metadata: {
             vulnerabilities: {
               critical: 0,
               high: 1,
-              medium: 1,
+              moderate: 1,  // npm uses 'moderate'
               low: 0
             }
           }
