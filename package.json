@@ -1,7 +1,7 @@
 {
   "name": "pulsetel-cli",
-  "version": "2.1.4",
-  "description": "Real-time project telemetry for AI agents and developers. One command to check CI, deploys, endpoints, dependencies, and issues.",
+  "version": "2.3.0",
+  "description": "The opinionated project health framework for AI agents — telemetry, analytics, and agent guidance in one command.",
   "main": "dist/index.js",
   "bin": {
     "pulsetel": "dist/index.js"

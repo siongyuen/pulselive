@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2-0-0.html).
 
+## [2.2.0] - 2026-04-20
+
+### Added
+- **Agent Guidance (`_agent_guidance`)** — Structured reasoning assistance for AI agents
+  - `observations`: What changed and why it matters
+  - `correlations`: Detected patterns across signals (coverage+deps, CI+git, etc.)
+  - `investigations`: Prioritized suggestions with time estimates
+  - `decision_tree`: Recommended action with confidence score
+- **`Scanner.runWithGuidance()`** — Returns results with agent guidance for correlation analysis
+- **Cross-signal correlation detection** — Automatically detects when multiple checks change together
+- **Pattern recognition** — Identifies common failure patterns (security+CI, coverage+deps, etc.)
+
+### Changed
+- **Repositioned as "opinionated project health framework"** — Framework provides data + reasoning prompts, agents provide interpretation + action
+- **Enhanced README** — Clearer value proposition for AI agents
+
 ## [2.1.3] - 2026-04-20
 
 ### Added
