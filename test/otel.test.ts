@@ -30,12 +30,10 @@ describe('OpenTelemetry Module', () => {
     });
 
     it('returns false when OTel dependencies are not installed', () => {
-      // In this environment, OTel packages ARE installed (as transitive deps),
-      // so initOtel({ otel: { enabled: true } }) will return true.
-      // The "not installed" path would need a separate CI environment to test.
+      // OTel packages are optional — initOtel should return false when they're absent.
+      // This environment has them as UNMET OPTIONAL DEPENDENCY, so this is the correct path.
       const result = initOtel({ otel: { enabled: true } });
-      expect(result).toBe(true);
-      expect(result).toBe(true);
+      expect(result).toBe(false);
     });
   });
 
