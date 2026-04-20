@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { initOtel, withOtelSpan, exportResults, shutdownOtel, isOtelAvailable } from '../src/otel';
+import { initOtel, withOtelSpan, exportResults, shutdownOtel, isOtelAvailable, _resetOtelDepsCache } from '../src/otel';
 
 describe('OpenTelemetry Module', () => {
   beforeEach(() => {
-    // Ensure clean state before each test
     shutdownOtel();
+    _resetOtelDepsCache();
   });
 
   afterEach(() => {
     shutdownOtel();
+    vi.restoreAllMocks();
+    _resetOtelDepsCache();
   });
 
   // ── initOtel ──
@@ -30,10 +32,19 @@ describe('OpenTelemetry Module', () => {
     });
 
     it('returns false when OTel dependencies are not installed', () => {
-      // OTel packages are optional — initOtel should return false when they're absent.
-      // This environment has them as UNMET OPTIONAL DEPENDENCY, so this is the correct path.
+      // Reset cache and mock require to throw (simulates missing packages)
+      _resetOtelDepsCache();
+      vi.stubGlobal('_originalRequire', require);
+      const mockRequire = vi.fn().mockImplementation(() => {
+        throw new Error('Cannot find module');
+      });
+      vi.stubGlobal('require', mockRequire);
+
       const result = initOtel({ otel: { enabled: true } });
       expect(result).toBe(false);
+
+      // Restore
+      vi.stubGlobal('require', (global as any)._originalRequire || require);
     });
   });
 
@@ -105,7 +116,6 @@ describe('OpenTelemetry Module', () => {
     });
 
     it('returns false after shutdown', async () => {
-      // Init will fail because packages aren't installed
       initOtel({ otel: { enabled: true } });
       await shutdownOtel();
       expect(isOtelAvailable()).toBe(false);
