@@ -40,7 +40,7 @@ export class MCPServer {
     this.mcpDeps = deps;
   }
 
-  private getScanner(dir?: string): Scanner {
+  getScanner(dir?: string): Scanner {
     if (dir) {
       const safeDir = this.validateDir(dir);
       const dirConfigLoader = this.mcpDeps.createConfigLoader(safeDir + '/.pulsetel.yml');
@@ -869,7 +869,7 @@ export class MCPServer {
     }
   }
 
-  private loadHistory(historyDir: string = '.pulsetel-history'): HistoryEntry[] {
+  loadHistory(historyDir: string = '.pulsetel-history'): HistoryEntry[] {
     try {
       if (!existsSync(historyDir)) {
         return [];

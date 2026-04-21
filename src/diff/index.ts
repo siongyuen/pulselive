@@ -41,7 +41,7 @@ export class PulsetelDiff {
     this.historyDir = join(baseDir || process.cwd(), '.pulsetel-history');
   }
 
-  private loadHistory(): Array<{ timestamp: string; data: any }> {
+  loadHistory(): Array<{ timestamp: string; data: any }> {
     if (!existsSync(this.historyDir)) {
       return [];
     }

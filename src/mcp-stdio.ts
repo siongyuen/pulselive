@@ -1,9 +1,12 @@
 import { createInterface } from 'readline';
-import { MCPServer } from './mcp-server';
-import { ConfigLoader } from './config';
-import { Scanner } from './scanner';
-import { TrendAnalyzer } from './trends';
-import { VERSION } from './version';
+import { MCPServer } from './mcp-server.js';
+import { ConfigLoader } from './config.js';
+import { Scanner } from './scanner.js';
+import { TrendAnalyzer } from './trends.js';
+import { VERSION } from './version.js';
+import { generateAgentGuidance } from './agent-guidance.js';
+import { PulsetelDiff } from './diff/index.js';
+import { PulsetelGuard } from './guard/index.js';
 
 /**
  * MCP stdio transport — JSON-RPC over stdin/stdout.
@@ -224,6 +227,67 @@ const TOOLS = [
       },
       estimated_duration_ms: 2000
     }
+  },
+  {
+    name: 'pulsetel_guidance',
+    description: 'Generate structured agent guidance from the most recent health check. Returns observations, cross-signal correlations, investigation prompts, and a decision tree with confidence scores. Use after pulsetel_check for reasoning assistance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dir: {
+          type: 'string',
+          description: 'Absolute path to the project directory. Defaults to cwd.'
+        }
+      },
+      estimated_duration_ms: 500
+    }
+  },
+  {
+    name: 'pulsetel_diff',
+    description: 'Compare the most recent health check against a previous run. Returns added, removed, and changed checks with risk assessment. Use --since to specify a timestamp, or omit for last-vs-current comparison.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dir: {
+          type: 'string',
+          description: 'Absolute path to the project directory. Defaults to cwd.'
+        },
+        since: {
+          type: 'string',
+          description: 'ISO timestamp to compare against. Defaults to previous run.'
+        },
+        threshold: {
+          type: 'number',
+          description: 'Drift threshold percentage (0-100). Defaults to 30.',
+          default: 30
+        }
+      },
+      estimated_duration_ms: 1000
+    }
+  },
+  {
+    name: 'pulsetel_guard',
+    description: 'Run pre-action and post-action health checks around a command. Returns before/after state, drift analysis, and exit code. Useful for validating that a command (e.g., npm install) did not break project health.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dir: {
+          type: 'string',
+          description: 'Absolute path to the project directory. Defaults to cwd.'
+        },
+        command: {
+          type: 'string',
+          description: 'Shell command to execute between pre/post checks. Required.'
+        },
+        threshold: {
+          type: 'number',
+          description: 'Drift threshold percentage (0-100). Defaults to 30.',
+          default: 30
+        }
+      },
+      required: ['command'],
+      estimated_duration_ms: 15000
+    }
   }
 ];
 
@@ -326,16 +390,37 @@ export class MCPStdioServer {
         }
 
         try {
-          const result = await this.mcpServer.handleToolRequest(
-            toolName,
-            toolArgs.dir,
-            {
-              includeTrends: toolArgs.include_trends || false,
-              checkType: toolArgs.check_type,
-              window: toolArgs.window || 7,
-              repos: toolArgs.repos
+          let result: any;
+
+          // Handle guidance, diff, guard locally; delegate others to mcpServer
+          if (toolName === 'pulsetel_guidance') {
+            result = await this.handleGuidance(toolArgs.dir);
+          } else if (toolName === 'pulsetel_diff') {
+            result = await this.handleDiff(toolArgs.dir, toolArgs.since, toolArgs.threshold);
+          } else if (toolName === 'pulsetel_guard') {
+            if (!toolArgs.command) {
+              return {
+                jsonrpc: '2.0',
+                id: id ?? null,
+                error: {
+                  code: -32602,
+                  message: 'Missing required parameter: command'
+                }
+              };
             }
-          );
+            result = await this.handleGuard(toolArgs.dir, toolArgs.command, toolArgs.threshold);
+          } else {
+            result = await this.mcpServer.handleToolRequest(
+              toolName,
+              toolArgs.dir,
+              {
+                includeTrends: toolArgs.include_trends || false,
+                checkType: toolArgs.check_type,
+                window: toolArgs.window || 7,
+                repos: toolArgs.repos
+              }
+            );
+          }
 
           return {
             jsonrpc: '2.0',
@@ -379,5 +464,37 @@ export class MCPStdioServer {
           }
         };
     }
+  }
+
+  // ── Local tool handlers for guidance, diff, guard ──
+
+  private async handleGuidance(dir?: string): Promise<any> {
+    const scanner = this.mcpServer.getScanner(dir);
+    const history = this.mcpServer.loadHistory();
+    const results = await scanner.runAllChecks();
+    const guidance = generateAgentGuidance(results);
+    return {
+      schema_version: '1.0.0',
+      timestamp: new Date().toISOString(),
+      _agent_guidance: guidance
+    };
+  }
+
+  private async handleDiff(dir?: string, since?: string, threshold?: number): Promise<any> {
+    const config = this.configLoader.autoDetect(dir);
+    const diff = new PulsetelDiff(config, dir || process.cwd());
+    const history = diff.loadHistory();
+    if (history.length === 0) {
+      return { error: 'No history found. Run pulsetel check at least twice first.' };
+    }
+    const oldSnap = history[0].data;
+    const newSnap = history[1] ? history[1].data : history[0].data;
+    return diff.diffSnapshots(oldSnap, newSnap);
+  }
+
+  private async handleGuard(dir?: string, command?: string, threshold?: number): Promise<any> {
+    const config = this.configLoader.autoDetect(dir);
+    const guard = new PulsetelGuard(config, { command: command!, cwd: dir, threshold: threshold || 30 });
+    return guard.run();
   }
 }
