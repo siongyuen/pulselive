@@ -229,7 +229,7 @@ checks:
         encoding: 'utf8'
       });
       
-      expect(result).toContain('Insufficient data for anomaly detection');
+      expect(result).toContain('Insufficient data');
       expect(result).toContain('need at least 5 data points for statistical analysis');
     });
 

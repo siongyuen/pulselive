@@ -58,6 +58,38 @@ describe('OpenTelemetry Module', () => {
       const fn = vi.fn().mockRejectedValue(new Error('Check failed'));
       await expect(withOtelSpan('ci', fn)).rejects.toThrow('Check failed');
     });
+
+    it('handles function that returns null result', async () => {
+      const fn = vi.fn().mockResolvedValue(null);
+      const result = await withOtelSpan('test', fn);
+      expect(result).toBeNull();
+    });
+
+    it('handles function that returns result without status', async () => {
+      const fn = vi.fn().mockResolvedValue({ type: 'test', message: 'OK' });
+      const result = await withOtelSpan('test', fn);
+      expect(result).toEqual({ type: 'test', message: 'OK' });
+    });
+
+    it('handles function that returns result with error status', async () => {
+      const fn = vi.fn().mockResolvedValue({ 
+        type: 'ci', 
+        status: 'error', 
+        message: 'Failed',
+        severity: 'high',
+        confidence: 'high',
+        actionable: true
+      });
+      const result = await withOtelSpan('ci', fn);
+      expect(result).toEqual({ 
+        type: 'ci', 
+        status: 'error', 
+        message: 'Failed',
+        severity: 'high',
+        confidence: 'high',
+        actionable: true
+      });
+    });
   });
 
   // ── exportResults ──
@@ -79,6 +111,43 @@ describe('OpenTelemetry Module', () => {
         { type: 'ci', status: 'success', message: 'OK' },
         { type: 'deps', status: 'warning', message: 'Outdated' },
         { type: 'git', status: 'error', message: 'Uncommitted' }
+      ] as any)).not.toThrow();
+    });
+
+    it('handles results with severity and confidence fields', () => {
+      expect(() => exportResults([
+        { 
+          type: 'ci', 
+          status: 'error', 
+          message: 'CI failing',
+          severity: 'high',
+          confidence: 'high',
+          actionable: true,
+          context: { details: 'test' }
+        }
+      ] as any)).not.toThrow();
+    });
+
+    it('handles results with different check types and details', () => {
+      expect(() => exportResults([
+        { 
+          type: 'deps', 
+          status: 'warning', 
+          message: 'Dependencies outdated',
+          details: { vulnerable: 5, outdated: 10 }
+        },
+        { 
+          type: 'issues', 
+          status: 'warning', 
+          message: 'Open issues',
+          details: { open: 15 }
+        },
+        { 
+          type: 'ci', 
+          status: 'success', 
+          message: 'CI passing',
+          details: { flakinessScore: 0.1 }
+        }
       ] as any)).not.toThrow();
     });
   });

@@ -173,6 +173,14 @@ program
   });
 
 program
+  .command('ping')
+  .description('Lightweight status/health ping of the project (quick check, returns exit code 0 if healthy, 1 if not)')
+  .option('--json', 'Output results as JSON')
+  .action(async (options) => {
+    await cliHandlers.handlePingCommand(options);
+  });
+
+program
   .command('report')
   .description('Export check results as a formatted report')
   .argument('[dir]', 'Directory to check (defaults to current directory)')
@@ -199,6 +207,8 @@ program
   .option('--json', 'Output results as JSON')
   .option('--since <timestamp>', 'Compare with specific timestamp')
   .option('--limit <n>', 'Limit comparison to last n runs')
+  .option('--delta', 'Delta mode: condensed output showing only significant changes')
+  .option('--threshold <percent>', 'Significance threshold for delta mode (default: 5)', '5')
   .action(async (dir, options) => {
     await cliHandlers.handleDiffCommand(dir, options);
   });

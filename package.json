@@ -1,6 +1,6 @@
 {
   "name": "pulsetel-cli",
-  "version": "2.3.0",
+  "version": "2.3.3",
   "description": "The opinionated project health framework for AI agents — telemetry, analytics, and agent guidance in one command.",
   "main": "dist/index.js",
   "bin": {

@@ -246,15 +246,37 @@ describe('CLIHandlers — Functional Tests', () => {
       expect(Array.isArray(parsed.anomalies)).toBe(true);
     });
 
-    it('outputs text anomalies when detected', async () => {
-      vi.spyOn(cliHelpers, 'loadHistory').mockReturnValue(makeAnomalousHistory());
+    it('outputs detailed anomaly information for each detected anomaly', async () => {
+      // Create history with a clear anomaly that will be detected
+      const anomalousHistory = [
+        { timestamp: '2024-01-01T00:00:00Z', results: [{ type: 'ci', status: 'success', message: 'CI passing', duration: 100, metrics: { flakinessScore: 10 } }] },
+        { timestamp: '2024-01-02T00:00:00Z', results: [{ type: 'ci', status: 'success', message: 'CI passing', duration: 100, metrics: { flakinessScore: 11 } }] },
+        { timestamp: '2024-01-03T00:00:00Z', results: [{ type: 'ci', status: 'success', message: 'CI passing', duration: 100, metrics: { flakinessScore: 12 } }] },
+        { timestamp: '2024-01-04T00:00:00Z', results: [{ type: 'ci', status: 'success', message: 'CI passing', duration: 100, metrics: { flakinessScore: 13 } }] },
+        { timestamp: '2024-01-05T00:00:00Z', results: [{ type: 'ci', status: 'success', message: 'CI passing', duration: 100, metrics: { flakinessScore: 14 } }] },
+        { timestamp: '2024-01-06T00:00:00Z', results: [{ type: 'ci', status: 'success', message: 'CI passing', duration: 100, metrics: { flakinessScore: 15 } }] },
+        { timestamp: '2024-01-07T00:00:00Z', results: [{ type: 'ci', status: 'success', message: 'CI passing', duration: 100, metrics: { flakinessScore: 16 } }] },
+        { timestamp: '2024-01-08T00:00:00Z', results: [{ type: 'ci', status: 'success', message: 'CI passing', duration: 100, metrics: { flakinessScore: 17 } }] },
+        { timestamp: '2024-01-09T00:00:00Z', results: [{ type: 'ci', status: 'error', message: 'CI flaky', duration: 500, metrics: { flakinessScore: 200 } }] }  // Clear anomaly
+      ];
+
+      vi.spyOn(cliHelpers, 'loadHistory').mockReturnValue(anomalousHistory);
 
       await handlers.handleAnomaliesCommand({ json: false });
-      // Should print header if anomalies found, or "No anomalies" if not
+
+      // Check that detailed anomaly output was generated
       const logCalls = mockDeps.log.mock.calls.map((c: any) => c[0]);
-      const hasHeader = logCalls.some((c: string) => c.includes('DETECTED ANOMALIES'));
-      const hasNoAnomalies = logCalls.some((c: string) => c.includes('No anomalies detected'));
-      expect(hasHeader || hasNoAnomalies).toBe(true);
+      
+      // Should have the DETECTED ANOMALIES header
+      expect(logCalls.some((c: string) => c.includes('DETECTED ANOMALIES'))).toBe(true);
+      
+      // Should have severity icons (🔴, 🟡, 🟢)
+      expect(logCalls.some((c: string) => c.includes('🔴') || c.includes('🟡') || c.includes('🟢'))).toBe(true);
+      
+      // Should have metric information
+      expect(logCalls.some((c: string) => c.includes('Metric:'))).toBe(true);
+      expect(logCalls.some((c: string) => c.includes('Value:'))).toBe(true);
+      expect(logCalls.some((c: string) => c.includes('Z-Score:'))).toBe(true);
     });
   });
 

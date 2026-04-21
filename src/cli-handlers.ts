@@ -27,6 +27,7 @@ import {
   saveHistory,
   formatTimeAgo
 } from './cli-helpers';
+import path from 'path';
 
 export interface HandlersDeps extends CLIDeps {
   createScanner?: (config: PulseliveConfig, workingDir?: string) => Scanner;
@@ -74,6 +75,10 @@ export interface AnomaliesCommandOptions {
 
 export interface HistoryCommandOptions {
   limit?: string;
+  json?: boolean;
+}
+
+export interface PingCommandOptions {
   json?: boolean;
 }
 
@@ -689,6 +694,97 @@ export class CLIHandlers {
   }
 
   /**
+   * Handle the ping command
+   */
+  async handlePingCommand(options: PingCommandOptions): Promise<void> {
+    const startTime = Date.now();
+    
+    // Perform a lightweight health check
+    // This is similar to status but even lighter - just checks if the CLI is working
+    // and can access basic project files
+    
+    try {
+      // Check if we're in a valid directory
+      const cwd = this.deps.cwd();
+      
+      // Check if package.json exists (basic project validation)
+      const packageJsonPath = path.join(cwd, 'package.json');
+      const hasPackageJson = this.deps.existsSync(packageJsonPath);
+      
+      // Check if .pulsetel config exists
+      const pulsetelConfigPath = path.join(cwd, '.pulsetel.yml');
+      const hasPulsetelConfig = this.deps.existsSync(pulsetelConfigPath);
+      
+      // Check if node_modules exists (indicates dependencies are installed)
+      const nodeModulesPath = path.join(cwd, 'node_modules');
+      const hasNodeModules = this.deps.existsSync(nodeModulesPath);
+      
+      const totalDuration = Date.now() - startTime;
+      
+      // Determine health status
+      const isHealthy = hasPackageJson; // At minimum, we need package.json
+      const healthScore = 
+        (hasPackageJson ? 40 : 0) +
+        (hasPulsetelConfig ? 30 : 0) +
+        (hasNodeModules ? 30 : 0);
+      
+      const status = isHealthy ? 'healthy' : 'unhealthy';
+      
+      if (options.json) {
+        this.deps.log(JSON.stringify({
+          schema_version: "1.0.0",
+          schema_url: "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
+          version: VERSION,
+          timestamp: new Date().toISOString(),
+          healthy: isHealthy,
+          status: status,
+          health_score: healthScore,
+          checks: {
+            package_json: hasPackageJson,
+            pulsetel_config: hasPulsetelConfig,
+            node_modules: hasNodeModules
+          },
+          duration_ms: totalDuration
+        }, null, 2));
+      } else {
+        const statusIcon = isHealthy ? '✅' : '❌';
+        this.deps.log(`${statusIcon} Ping: ${status} (score: ${healthScore}/100, ${totalDuration}ms)`);
+        
+        if (!hasPackageJson) {
+          this.deps.log('  ⚠️  No package.json found - is this a Node.js project?');
+        }
+        if (!hasPulsetelConfig) {
+          this.deps.log('  ℹ️  No .pulsetel.yml found - run `pulsetel init` to create one');
+        }
+        if (!hasNodeModules) {
+          this.deps.log('  ℹ️  No node_modules found - run `npm install`');
+        }
+      }
+      
+      // Exit with appropriate code
+      if (!isHealthy) {
+        this.deps.exit(1);
+      }
+    } catch (error) {
+      if (options.json) {
+        this.deps.log(JSON.stringify({
+          schema_version: "1.0.0",
+          schema_url: "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
+          version: VERSION,
+          timestamp: new Date().toISOString(),
+          healthy: false,
+          status: 'error',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          duration_ms: Date.now() - startTime
+        }, null, 2));
+      } else {
+        this.deps.log('❌ Ping failed:', error instanceof Error ? error.message : 'Unknown error');
+      }
+      this.deps.exit(1);
+    }
+  }
+
+  /**
    * Handle the report command
    */
   async handleReportCommand(dir: string | undefined, options: ReportCommandOptions): Promise<void> {
@@ -789,13 +885,17 @@ export class CLIHandlers {
   /**
    * Handle the diff command
    */
-  async handleDiffCommand(dir: string | undefined, options: CheckCommandOptions): Promise<void> {
+  async handleDiffCommand(dir: string | undefined, options: any): Promise<void> {
     const { PulsetelDiff } = await import('./diff/index.js');
     const workingDir = this.validateDir(dir);
     const configLoader = dir ? new ConfigLoader(dir + '/.pulsetel.yml') : new ConfigLoader();
     const config = configLoader.autoDetect(workingDir);
     const diff = new PulsetelDiff(config, workingDir);
-    await diff.run({ format: options.json ? 'json' : 'text' });
+    await diff.run({ 
+      format: options.json ? 'json' : 'text',
+      delta: options.delta,
+      threshold: options.threshold ? parseFloat(options.threshold) : 5
+    });
   }
 
   /**
