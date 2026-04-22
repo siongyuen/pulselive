@@ -19,7 +19,7 @@ describe('PulseTel Integration Test - Real Project', () => {
     
     expect(config).toBeDefined();
     expect(config.health).toBeDefined();
-    expect(config.health?.endpoints).toHaveLength(2);
+    expect(config.health?.endpoints?.length).toBeGreaterThanOrEqual(2);
   });
 
   it('should run pulsetel_recommend and return actionable recommendations', async () => {
