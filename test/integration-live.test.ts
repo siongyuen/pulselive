@@ -36,7 +36,7 @@ function execNode(args: string[], cwd: string, timeout = 30000): string {
 describe('PulseTel Live Integration Tests', () => {
   let serverProcess: any;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     // Create test project directory if it doesn't exist
     if (!existsSync(TEST_PROJECT_DIR)) {
       mkdirSync(TEST_PROJECT_DIR, { recursive: true });
@@ -139,7 +139,18 @@ server.listen(PORT, () => {
 `
       );
 
-      // Create a dummy file for git uncommitted detection
+      // Initialize git repository for testing
+      const { execSync } = require('child_process');
+      execSync('git init', { cwd: TEST_PROJECT_DIR, stdio: 'ignore' });
+      execSync('git config user.email "test@example.com"', { cwd: TEST_PROJECT_DIR, stdio: 'ignore' });
+      execSync('git config user.name "Test User"', { cwd: TEST_PROJECT_DIR, stdio: 'ignore' });
+      
+      // Create a dummy file and commit it
+      writeFileSync(path.join(TEST_PROJECT_DIR, 'committed.txt'), 'committed');
+      execSync('git add committed.txt', { cwd: TEST_PROJECT_DIR, stdio: 'ignore' });
+      execSync('git commit -m "Initial commit"', { cwd: TEST_PROJECT_DIR, stdio: 'ignore' });
+      
+      // Create an uncommitted file for detection
       writeFileSync(path.join(TEST_PROJECT_DIR, 'uncommitted.txt'), 'test');
     }
 
@@ -150,17 +161,24 @@ server.listen(PORT, () => {
       stdio: 'pipe',
     });
 
-    // Wait for server to start
+    // Wait for server to start with proper polling
     const startTime = Date.now();
-    while (Date.now() - startTime < 5000) {
+    let serverReady = false;
+    while (Date.now() - startTime < 10000) {
       try {
-        const req = http.get('http://localhost:8765/health');
-        req.on('error', () => {});
-        req.destroy();
-        break;
+        const response = await httpRequest('http://localhost:8765/health');
+        if (response.status === 200) {
+          serverReady = true;
+          break;
+        }
       } catch {
         // Server not ready yet
       }
+      // Wait 100ms before trying again
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    if (!serverReady) {
+      throw new Error('Test server failed to start within 10 seconds');
     }
   });
 
