@@ -1,0 +1,29 @@
+github:
+  repo: siongyuen/pulsetel-test-project
+health:
+  allow_local: true
+  endpoints:
+    - name: Healthy Endpoint
+      url: http://localhost:8765/health
+      timeout: 3000
+      baseline: 100
+    - name: Slow Endpoint
+      url: http://localhost:8765/slow
+      timeout: 3000
+      baseline: 500
+    - name: Failing Endpoint
+      url: http://localhost:8765/error
+      timeout: 3000
+      baseline: 100
+    - name: Unavailable Endpoint
+      url: http://localhost:8765/unavailable
+      timeout: 3000
+      baseline: 100
+checks:
+  ci: true
+  deps: true
+  git: true
+  health: true
+  issues: true
+  deploy: false
+webhooks: []

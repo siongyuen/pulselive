@@ -1,33 +1,103 @@
 import { MCPServer, MCPDeps } from '../src/mcp-server.js';
 import { ConfigLoader } from '../src/config.js';
 import { Scanner, CheckResult } from '../src/scanner.js';
-import { describe, it, expect } from 'vitest';
-import { existsSync } from 'fs';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { existsSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import path from 'path';
 
 describe('PulseTel Integration Test - Real Project', () => {
+  const testProjectDir = path.resolve(__dirname, '../tmp/pulsetel-test-project');
+
+  beforeAll(() => {
+    // Create test project directory if it doesn't exist
+    if (!existsSync(testProjectDir)) {
+      mkdirSync(testProjectDir, { recursive: true });
+
+      // Create package.json with outdated dependencies
+      writeFileSync(
+        path.join(testProjectDir, 'package.json'),
+        JSON.stringify(
+          {
+            name: 'pulsetel-test-project',
+            version: '1.0.0',
+            description: 'Test project for PulseTel integration testing',
+            main: 'index.js',
+            scripts: {
+              test: "echo 'Tests failing!' && exit 1",
+              build: "echo 'Build failing!' && exit 1",
+            },
+            dependencies: {
+              lodash: '4.17.15',
+              express: '4.16.0',
+              axios: '0.19.0',
+            },
+            devDependencies: {
+              jest: '26.0.0',
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      // Create pulsetel config
+      writeFileSync(
+        path.join(testProjectDir, '.pulsetel.yml'),
+        `github:
+  repo: siongyuen/pulsetel-test-project
+health:
+  allow_local: true
+  endpoints:
+    - name: Healthy Endpoint
+      url: http://localhost:8765/health
+      timeout: 3000
+      baseline: 100
+    - name: Slow Endpoint
+      url: http://localhost:8765/slow
+      timeout: 3000
+      baseline: 500
+    - name: Failing Endpoint
+      url: http://localhost:8765/error
+      timeout: 3000
+      baseline: 100
+    - name: Unavailable Endpoint
+      url: http://localhost:8765/unavailable
+      timeout: 3000
+      baseline: 100
+checks:
+  ci: true
+  deps: true
+  git: true
+  health: true
+  issues: true
+  deploy: false
+webhooks: []
+`
+      );
+
+      // Create a dummy file for git uncommitted detection
+      writeFileSync(path.join(testProjectDir, 'uncommitted.txt'), 'test');
+    }
+  });
+
   it('should detect issues in test project', async () => {
-    const testProjectDir = '/tmp/pulsetel-test-project';
-    
     // Verify test project exists
     expect(existsSync(testProjectDir)).toBe(true);
     expect(existsSync(path.join(testProjectDir, 'package.json'))).toBe(true);
-    
+
     // Load config from test project
     const configLoader = new ConfigLoader(path.join(testProjectDir, '.pulsetel.yml'));
     const config = configLoader.getConfig();
-    
+
     expect(config).toBeDefined();
     expect(config.health).toBeDefined();
     expect(config.health?.endpoints?.length).toBeGreaterThanOrEqual(2);
   });
 
   it('should run pulsetel_recommend and return actionable recommendations', async () => {
-    const testProjectDir = '/tmp/pulsetel-test-project';
-    
     // Create config loader for test project
     const configLoader = new ConfigLoader(path.join(testProjectDir, '.pulsetel.yml'));
-    
+
     // Create mock scanner that returns realistic results
     const mockResults: CheckResult[] = [
       {
@@ -82,18 +152,18 @@ describe('PulseTel Integration Test - Real Project', () => {
       createScanner: () => mockScanner,
       createConfigLoader: (configPath?: string) => new ConfigLoader(configPath)
     };
-    
+
     const server = new MCPServer(configLoader, 3000, mockDeps);
-    
+
     // Call pulsetel_recommend
     const result = await server.handleToolRequest('pulsetel_recommend');
-    
+
     // Verify recommendations
     expect(result).toBeDefined();
     expect(result.recommendations).toBeDefined();
     expect(Array.isArray(result.recommendations)).toBe(true);
     expect(result.totalRecommendations).toBeGreaterThan(0);
-    
+
     // Should prioritize issues by severity (critical first, then warning)
     if (result.recommendations.length > 0) {
       const first = result.recommendations[0];
@@ -103,7 +173,7 @@ describe('PulseTel Integration Test - Real Project', () => {
       expect(first.actionable).toBeDefined();
       expect(first.context).toBeDefined();
     }
-    
+
     // Verify structure
     const rec = result.recommendations[0];
     expect(rec).toHaveProperty('rank');
@@ -116,9 +186,9 @@ describe('PulseTel Integration Test - Real Project', () => {
   });
 
   it('should handle all-success scenario', async () => {
-    const testProjectDir = '/tmp/pulsetel-test-project';
     const configLoader = new ConfigLoader(path.join(testProjectDir, '.pulsetel.yml'));
-    
+
+    // All checks pass - no issues to recommend
     const mockResults: CheckResult[] = [
       {
         type: 'health',
@@ -129,22 +199,43 @@ describe('PulseTel Integration Test - Real Project', () => {
         actionable: 'No action needed',
         context: 'All endpoints responding normally',
         duration: 100
+      },
+      {
+        type: 'deps',
+        status: 'success',
+        severity: 'low',
+        confidence: 'high',
+        message: 'No vulnerabilities found',
+        actionable: 'No action needed',
+        context: 'Dependencies are up to date',
+        duration: 100
+      },
+      {
+        type: 'git',
+        status: 'success',
+        severity: 'low',
+        confidence: 'high',
+        message: 'Git status clean',
+        actionable: 'No action needed',
+        context: 'Repository is in sync with remote',
+        duration: 100,
+        details: { branch: 'master', uncommitted: 0 }
       }
     ];
-    
+
     const mockScanner = {
       runAllChecks: async () => mockResults,
       runSingleCheck: async (type: string) => mockResults[0]
     } as unknown as Scanner;
-    
+
     const mockDeps: MCPDeps = {
       createScanner: () => mockScanner,
       createConfigLoader: (configPath?: string) => new ConfigLoader(configPath)
     };
-    
+
     const server = new MCPServer(configLoader, 3000, mockDeps);
     const result = await server.handleToolRequest('pulsetel_recommend');
-    
+
     expect(result.totalRecommendations).toBe(0);
     expect(result.recommendations).toHaveLength(0);
   });
