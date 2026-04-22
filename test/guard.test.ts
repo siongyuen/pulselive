@@ -343,6 +343,64 @@ describe('PulsetelGuard', () => {
     });
   });
 
+  describe('command validation', () => {
+    it('should reject absolute paths', () => {
+      const options: GuardOptions = { command: '/bin/rm', args: ['-rf', '/'] };
+      guard = new PulsetelGuard({}, options);
+      
+      // run() should call process.exit(1) — but in tests we can't easily catch that
+      // Instead, verify the validation logic directly if exported, or mock process.exit
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {} as never);
+      
+      guard.run();
+      
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      exitSpy.mockRestore();
+    });
+
+    it('should reject shell metacharacters', () => {
+      const options: GuardOptions = { command: 'echo; rm -rf /', args: [] };
+      guard = new PulsetelGuard({}, options);
+      
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {} as never);
+      
+      guard.run();
+      
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      exitSpy.mockRestore();
+    });
+
+    it('should reject commands not in allowlist', () => {
+      const options: GuardOptions = { command: 'malicious-binary', args: [] };
+      guard = new PulsetelGuard({}, options);
+      
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {} as never);
+      
+      guard.run();
+      
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      exitSpy.mockRestore();
+    });
+
+    it('should accept allowed commands', () => {
+      const options: GuardOptions = { command: 'npm', args: ['test'] };
+      guard = new PulsetelGuard({}, options);
+      
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {} as never);
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      
+      // npm --help should succeed (or fail gracefully), but we just verify it passes validation
+      guard.run().catch(() => {}); // run() may fail for other reasons, that's fine
+      
+      // If validation passed, process.exit should NOT be called with 1
+      // But execFileSync may fail, so check console.error wasn't called with our message
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Guard command rejected'));
+      
+      exitSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
   describe('run', () => {
     it('should be testable with proper mocking setup', () => {
       // Note: Full run() testing requires complex mocking of execFileSync and Scanner

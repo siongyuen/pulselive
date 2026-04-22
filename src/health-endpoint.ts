@@ -34,7 +34,7 @@ export function recordRequest(statusCode: number, durationMs: number): void {
   metrics.totalRequests++;
   metrics.totalDuration += durationMs;
   
-  if (statusCode >= 200 && statusCode < 500) {
+  if (statusCode >= 200 && statusCode < 400) {
     metrics.successRequests++;
   } else {
     metrics.errorRequests++;

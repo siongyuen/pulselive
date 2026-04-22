@@ -1,8 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 
 describe('Self-Health Endpoint', () => {
+  // Reset metrics before each test by re-importing
+  const importFresh = async () => {
+    // Use dynamic import to get fresh module state
+    const module = await import('../src/health-endpoint?version=' + Date.now());
+    return module;
+  };
+
   it('should return server status', async () => {
-    const { getHealthStatus } = await import('../src/health-endpoint');
+    const { getHealthStatus } = await importFresh();
     const status = getHealthStatus();
     
     expect(status.status).toBe('healthy');
@@ -12,7 +19,7 @@ describe('Self-Health Endpoint', () => {
   });
 
   it('should include request metrics', async () => {
-    const { getHealthStatus, recordRequest } = await import('../src/health-endpoint');
+    const { getHealthStatus, recordRequest } = await importFresh();
     
     recordRequest(200, 100);
     recordRequest(200, 150);
@@ -27,7 +34,7 @@ describe('Self-Health Endpoint', () => {
   });
 
   it('should track queue depth', async () => {
-    const { getHealthStatus, setQueueDepth } = await import('../src/health-endpoint');
+    const { getHealthStatus, setQueueDepth } = await importFresh();
     
     setQueueDepth(5);
     
@@ -36,7 +43,7 @@ describe('Self-Health Endpoint', () => {
   });
 
   it('should detect unhealthy state on high error rate', async () => {
-    const { getHealthStatus, recordRequest } = await import('../src/health-endpoint');
+    const { getHealthStatus, recordRequest } = await importFresh();
     
     // Simulate 60% error rate (more than 50% = unhealthy)
     for (let i = 0; i < 10; i++) {
@@ -46,5 +53,28 @@ describe('Self-Health Endpoint', () => {
     const status = getHealthStatus();
     expect(status.status).toBe('unhealthy');
     expect(status.errorRate).toBeGreaterThan(0.5);
+  });
+
+  it('should classify 4xx as errors, not success', async () => {
+    const { getHealthStatus, recordRequest } = await importFresh();
+    
+    // 401 Unauthorized should be an error
+    recordRequest(401, 50);
+    
+    const status = getHealthStatus();
+    expect(status.requests.success).toBe(0);
+    expect(status.requests.errors).toBe(1);
+    expect(status.errorRate).toBe(1);
+    expect(status.status).toBe('unhealthy');
+  });
+
+  it('should classify 3xx as success', async () => {
+    const { getHealthStatus, recordRequest } = await importFresh();
+    
+    recordRequest(301, 50);
+    
+    const status = getHealthStatus();
+    expect(status.requests.success).toBe(1);
+    expect(status.requests.errors).toBe(0);
   });
 });
