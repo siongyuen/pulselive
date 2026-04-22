@@ -36,8 +36,8 @@ export class WebhookQueue {
     this.pendingDir = join(this.queueDir, 'pending');
     this.deliveredDir = join(this.queueDir, 'delivered');
     this.deadLetterDir = join(this.queueDir, 'dead-letter');
-    this.maxRetries = options.maxRetries || 3;
-    this.retryDelayMs = options.retryDelayMs || 5000;
+    this.maxRetries = options.maxRetries ?? 3;
+    this.retryDelayMs = options.retryDelayMs ?? 5000;
 
     // Ensure directories exist
     [this.pendingDir, this.deliveredDir, this.deadLetterDir].forEach(dir => {
@@ -177,6 +177,8 @@ export class WebhookQueue {
     return pending.filter(entry => {
       if (entry.retryCount === 0) return true;
       if (!entry.lastAttempt) return true;
+      // If retryDelayMs is 0, always retry immediately
+      if (this.retryDelayMs === 0) return true;
       const lastAttempt = new Date(entry.lastAttempt).getTime();
       return now - lastAttempt >= this.retryDelayMs;
     });
