@@ -84,8 +84,8 @@ describe('HealthCheck', () => {
     const result = await check.run();
 
     expect(result.type).toBe('health');
-    expect(result.status).toBe('warning');
-    expect(result.message).toContain('Some endpoints have issues');
+    expect(result.status).toBe('error');
+    expect(result.message).toContain('endpoint(s) failed');
   });
 
   it('should handle connection failures gracefully', async () => {

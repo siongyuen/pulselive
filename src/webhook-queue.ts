@@ -151,7 +151,9 @@ export class WebhookQueue {
       const entry = safeReadJsonSync(filePath) as WebhookQueueEntry | null;
       if (entry && entry.createdAt) {
         const created = new Date(entry.createdAt);
-        if (created < cutoff) {
+        // When olderThanDays is 0, delete all delivered items (created <= cutoff)
+        const shouldDelete = olderThanDays === 0 ? created <= cutoff : created < cutoff;
+        if (shouldDelete) {
           try {
             unlinkSync(filePath);
             cleaned++;

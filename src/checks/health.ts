@@ -327,7 +327,8 @@ export class HealthCheck {
       }
 
       const healthyResults = results.filter(r => r.status >= 200 && r.status < 300);
-      const failedResults = results.filter(r => r.error || r.status >= 500);
+      const failedResults = results.filter(r => r.error || (r.status >= 400 && r.status < 600));
+      const degradedResults = results.filter(r => r.status >= 300 && r.status < 400);
       const performanceWarnings = results.filter(r => {
         if (r.baseline && r.responseTime > 0) {
           const ratio = r.responseTime / r.baseline;
@@ -359,7 +360,7 @@ export class HealthCheck {
         return {
           type: 'health',
           status: 'error',
-          message: `${failedResults.length} endpoint(s) failed, ${performanceErrors.length} performance issue(s), avg ${Math.round(avgLatency)}ms`,
+          message: `${failedResults.length} endpoint(s) failed${degradedResults.length > 0 ? `, ${degradedResults.length} degraded` : ''}${performanceErrors.length > 0 ? `, ${performanceErrors.length} performance issue(s)` : ''}, avg ${Math.round(avgLatency)}ms`,
           details: results
         };
       } else {
