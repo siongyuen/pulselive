@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2-0-0.html).
 
+## [2.4.0] - 2026-04-22
+
+### Security
+- **API Key Authentication** (`src/auth.ts`) — MCP HTTP endpoint now supports bearer token and API key authentication
+  - Timing-safe comparison prevents timing attacks
+  - Configurable via `.pulsetel.yml` (`mcp.auth`) or `PULSETEL_API_KEY` env var
+  - Returns 401 for unauthenticated requests
+- **Request Size Limits** — MCP server rejects POST bodies exceeding 1MB (413 response)
+- **Case-Insensitive Header Parsing** — Auth headers parsed case-insensitively per HTTP spec
+
+### Performance
+- **Parallel Check Execution** — All checks now run concurrently instead of sequentially
+  - 3× faster for typical workloads (e.g., 3 checks: 300ms → 108ms)
+  - Partial failure handling — one check failing doesn't block others
+- **Per-Check Timeouts** — Each check has a configurable timeout (default 30s)
+  - Prevents slow checks (e.g., `npm audit`) from hanging the entire scan
+  - Returns structured timeout error with check type
+
+### Reliability
+- **Atomic File I/O** (`src/atomic-io.ts`) — History writes use temp-then-rename pattern
+  - Eliminates race conditions in concurrent `.pulsetel-history/` writes
+  - Corrupted files handled gracefully with fallback defaults
+- **Persistent Webhook Queue** (`src/webhook-queue.ts`) — Webhooks queued to disk with retry
+  - Survives process restarts
+  - Exponential backoff retry (configurable max retries, default 3)
+  - Dead letter queue for permanently failed webhooks
+  - Automatic cleanup of old delivered entries
+
+### Observability
+- **Structured Logging** (`src/logger.ts`) — JSON-formatted logs with levels
+  - Supports `debug`, `info`, `warn`, `error` levels
+  - File or console output
+  - Child loggers with additional context
+  - Error object serialization with stack traces
+- **Self-Health Endpoint** (`src/health-endpoint.ts`) — MCP server exposes `/health` via `pulsetel_status`
+  - Uptime, request count, error rate, queue depth
+  - Health levels: `healthy`, `degraded`, `unhealthy`
+
+### Testing
+- **62 new tests** across 9 test files (803 total tests, 54 test files)
+- All fixes developed with TDD (tests written before implementation)
+
 ## [2.2.0] - 2026-04-20
 
 ### Added

@@ -10,6 +10,9 @@ import { PulseliveConfig } from './config';
 
 import { VALID_TOOLS, validateDir, getRequiredParamsForTool, statusToSeverity, enrichResult, errorActionable, warningActionable, trendActionable, trendContext, anomalyActionable, anomalyContext, computeSummary, computeOverallTrend } from './mcp-helpers';
 
+import { authenticateRequest, parseAuthConfig, AuthConfig } from './auth';
+import { atomicWriteJsonSync, safeReadJsonSync } from './atomic-io';
+
 // MCP usage telemetry
 interface MCPUsageEntry {
   tool: string;
@@ -17,6 +20,9 @@ interface MCPUsageEntry {
   duration: number;
   status: 'success' | 'error';
 }
+
+const MAX_REQUEST_BODY_SIZE = 1024 * 1024; // 1MB
+const DEFAULT_CHECK_TIMEOUT_MS = 30000; // 30 seconds per check
 
 export interface MCPDeps {
   createScanner: (config: PulseliveConfig, dir?: string) => Scanner;
@@ -33,11 +39,13 @@ export class MCPServer {
   private server: Server | null = null;
   private port: number;
   private mcpDeps: MCPDeps;
+  private authConfig: AuthConfig;
 
   constructor(configLoader: ConfigLoader, port: number = 3000, deps: MCPDeps = defaultMCPDeps) {
     this.configLoader = configLoader;
     this.port = port;
     this.mcpDeps = deps;
+    this.authConfig = parseAuthConfig(configLoader.getConfig());
   }
 
   getScanner(dir?: string): Scanner {
@@ -61,14 +69,33 @@ export class MCPServer {
 
   start(): void {
     this.server = createServer(async (req, res) => {
+      // CORS headers
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
         res.end();
         return;
+      }
+
+      // Authentication check
+      const authResult = authenticateRequest(req.headers, this.authConfig);
+      if (!authResult.authenticated) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: authResult.error || 'Unauthorized' }));
+        return;
+      }
+
+      // Request body size limit for POST requests
+      if (req.method === 'POST') {
+        const contentLength = parseInt(req.headers['content-length'] || '0');
+        if (contentLength > MAX_REQUEST_BODY_SIZE) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Request body too large' }));
+          return;
+        }
       }
 
       const toolStartTime = Date.now();
@@ -87,7 +114,15 @@ export class MCPServer {
           const contentType = req.headers['content-type'] || '';
           if (contentType.includes('application/json')) {
             const bodyChunks: Buffer[] = [];
+            let bodySize = 0;
             for await (const chunk of req) {
+              bodySize += chunk.length;
+              if (bodySize > MAX_REQUEST_BODY_SIZE) {
+                res.writeHead(413, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Request body too large' }));
+                this.logMCPUsage('unknown', toolStartTime, 'error');
+                return;
+              }
               bodyChunks.push(chunk);
             }
             const body = Buffer.concat(bodyChunks).toString('utf8');

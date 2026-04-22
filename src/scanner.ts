@@ -31,6 +31,29 @@ export interface CheckResultWithGuidance {
   _agent_guidance?: AgentGuidance;
 }
 
+const DEFAULT_CHECK_TIMEOUT_MS = 30000; // 30 seconds
+
+/**
+ * Run a function with a timeout. Returns error result if timeout exceeded.
+ */
+async function runWithTimeout<T>(fn: () => Promise<T>, timeoutMs: number, checkType: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${checkType} check timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    fn()
+      .then((result) => {
+        clearTimeout(timer);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
 /**
  * Retry wrapper for checks that make HTTP calls.
  * Retries up to 2 times on 5xx or rate-limit (429) errors.
@@ -68,11 +91,12 @@ export type CheckFactory = (config: PulseliveConfig, workingDir: string) => Chec
 /**
  * Check registry entry — defines a check type, its factory, retry behaviour, and config key.
  */
-interface CheckEntry {
+export interface CheckEntry {
   type: string;
   factory: CheckFactory;
   retryable: boolean;
   configKey: string;  // e.g. 'ci', 'deps', 'coverage' — used for enable/disable check
+  timeoutMs?: number; // Per-check timeout override (default: 30000ms)
 }
 
 /**
@@ -161,7 +185,7 @@ export class Scanner {
   }
 
   /**
-   * Run a single check entry, with optional retry and OTel wrapping.
+   * Run a single check entry, with optional retry, OTel wrapping, and timeout.
    */
   private async runCheck(entry: CheckEntry): Promise<CheckResult> {
     const check = entry.factory(this.config, this.workingDir);
@@ -169,29 +193,34 @@ export class Scanner {
     const wrappedFn = this.otelEnabled 
       ? () => this.deps.otel.withSpan(entry.type, runFn)
       : runFn;
-    return wrappedFn();
+    
+    // Apply timeout if specified
+    const timeoutMs = entry.timeoutMs || DEFAULT_CHECK_TIMEOUT_MS;
+    return runWithTimeout(wrappedFn, timeoutMs, entry.type);
   }
 
   async runAllChecks(): Promise<CheckResult[]> {
-    const results: CheckResult[] = [];
-
-    for (const entry of this.deps.checks) {
-      if (!this.isEnabled(entry)) continue;
+    const enabledChecks = this.deps.checks.filter(entry => this.isEnabled(entry));
+    
+    // Run all enabled checks in parallel for faster response
+    const checkPromises = enabledChecks.map(async (entry) => {
       const startTime = Date.now();
       try {
         const result = await this.runCheck(entry);
         result.duration = Date.now() - startTime;
-        results.push(result);
+        return result;
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        results.push({
+        return {
           type: entry.type,
-          status: 'error',
+          status: 'error' as const,
           message: `${entry.type} check failed: ${errorMsg}`,
           duration: Date.now() - startTime
-        });
+        };
       }
-    }
+    });
+
+    const results = await Promise.all(checkPromises);
 
     // Export results to OpenTelemetry if enabled
     if (this.otelEnabled) {

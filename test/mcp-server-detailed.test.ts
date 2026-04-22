@@ -69,7 +69,10 @@ describe('MCPServer detailed tests', () => {
   describe('error handling', () => {
     it('should handle invalid config loader gracefully', () => {
       // Test with a minimal config loader
-      const minimalConfigLoader = { autoDetect: vi.fn().mockReturnValue({}) };
+      const minimalConfigLoader = { 
+        autoDetect: vi.fn().mockReturnValue({}),
+        getConfig: vi.fn().mockReturnValue({})
+      };
       const server = new MCPServer(minimalConfigLoader as any);
       expect(server).toBeInstanceOf(MCPServer);
     });
