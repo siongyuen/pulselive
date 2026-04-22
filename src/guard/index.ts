@@ -2,6 +2,42 @@ import { PulseliveConfig } from '../config.js';
 import { execFileSync } from 'child_process';
 import { Scanner } from '../scanner.js';
 
+// Allowed commands for guard execution (prevent arbitrary command injection)
+const ALLOWED_GUARD_COMMANDS = [
+  'npm', 'yarn', 'pnpm',
+  'node', 'npx',
+  'git',
+  'tsc', 'eslint', 'prettier',
+  'jest', 'vitest', 'mocha',
+  'cargo', 'go', 'python', 'python3',
+  'make', 'cmake',
+];
+
+/**
+ * Validate guard command for security.
+ * Rejects absolute paths, shell metacharacters, and commands not in allowlist.
+ */
+export function validateGuardCommand(command: string): { valid: boolean; error?: string } {
+  // Reject shell metacharacters first (before path check, since they might contain slashes)
+  if (/[;&|<>$`"\\]/.test(command)) {
+    return { valid: false, error: `Shell metacharacters not allowed in command: ${command}` };
+  }
+
+  // Reject absolute paths (could be anything)
+  if (command.includes('/') || command.includes('\\')) {
+    return { valid: false, error: `Absolute paths not allowed: ${command}` };
+  }
+
+
+  // Check against allowlist
+  const baseCommand = command.split(' ')[0];
+  if (!ALLOWED_GUARD_COMMANDS.includes(baseCommand)) {
+    return { valid: false, error: `Command not in allowlist: ${baseCommand}. Allowed: ${ALLOWED_GUARD_COMMANDS.join(', ')}` };
+  }
+
+  return { valid: true };
+}
+
 export interface GuardOptions {
   config?: PulseliveConfig;
   command: string;
@@ -34,6 +70,13 @@ export class PulsetelGuard {
   }
 
   async run(): Promise<GuardResult> {
+    // Validate command before execution
+    const validation = validateGuardCommand(this.options.command);
+    if (!validation.valid) {
+      console.error(`Guard command rejected: ${validation.error}`);
+      process.exit(1);
+    }
+
     try {
       execFileSync(this.options.command, ['--help'], { stdio: 'ignore' });
     } catch (err) {

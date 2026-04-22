@@ -1,9 +1,59 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PulsetelGuard, GuardOptions, GuardResult } from '../src/guard/index.js';
-import { execFileSync } from 'child_process';
-import { Scanner } from '../src/scanner.js';
-import * as child_process from 'child_process';
+import { PulsetelGuard, GuardOptions, GuardResult, validateGuardCommand } from '../src/guard/index.js';
 
+// Tests for the validation function (pure, no mocking needed)
+describe('validateGuardCommand', () => {
+  it('should reject absolute paths', () => {
+    const result = validateGuardCommand('/bin/rm');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Absolute paths not allowed');
+  });
+
+  it('should reject shell metacharacters (semicolon)', () => {
+    const result = validateGuardCommand('echo; rm -rf /');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Shell metacharacters');
+  });
+
+  it('should reject shell metacharacters (pipe)', () => {
+    const result = validateGuardCommand('cat /etc/passwd | grep root');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Shell metacharacters');
+  });
+
+  it('should reject commands not in allowlist', () => {
+    const result = validateGuardCommand('malicious-binary');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('not in allowlist');
+  });
+
+  it('should accept npm', () => {
+    const result = validateGuardCommand('npm');
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept node', () => {
+    const result = validateGuardCommand('node');
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept git', () => {
+    const result = validateGuardCommand('git');
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept tsc', () => {
+    const result = validateGuardCommand('tsc');
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept vitest', () => {
+    const result = validateGuardCommand('vitest');
+    expect(result.valid).toBe(true);
+  });
+});
+
+// Tests for PulsetelGuard class
 describe('PulsetelGuard', () => {
   let guard: PulsetelGuard;
 
@@ -76,7 +126,7 @@ describe('PulsetelGuard', () => {
       const result = guard.calculateDrift(before, after, 20);
 
       expect(result.exceededThreshold).toBe(false);
-      expect(result.maxChangePercent).toBe(10);
+      expect(result.maxChangePercent).toBe(10); // 100→110 = 10%
     });
 
     it('should detect nested changes', () => {
@@ -340,64 +390,6 @@ describe('PulsetelGuard', () => {
 
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('status:'));
       expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('duration:'));
-    });
-  });
-
-  describe('command validation', () => {
-    it('should reject absolute paths', () => {
-      const options: GuardOptions = { command: '/bin/rm', args: ['-rf', '/'] };
-      guard = new PulsetelGuard({}, options);
-      
-      // run() should call process.exit(1) — but in tests we can't easily catch that
-      // Instead, verify the validation logic directly if exported, or mock process.exit
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {} as never);
-      
-      guard.run();
-      
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      exitSpy.mockRestore();
-    });
-
-    it('should reject shell metacharacters', () => {
-      const options: GuardOptions = { command: 'echo; rm -rf /', args: [] };
-      guard = new PulsetelGuard({}, options);
-      
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {} as never);
-      
-      guard.run();
-      
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      exitSpy.mockRestore();
-    });
-
-    it('should reject commands not in allowlist', () => {
-      const options: GuardOptions = { command: 'malicious-binary', args: [] };
-      guard = new PulsetelGuard({}, options);
-      
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {} as never);
-      
-      guard.run();
-      
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      exitSpy.mockRestore();
-    });
-
-    it('should accept allowed commands', () => {
-      const options: GuardOptions = { command: 'npm', args: ['test'] };
-      guard = new PulsetelGuard({}, options);
-      
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {} as never);
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      
-      // npm --help should succeed (or fail gracefully), but we just verify it passes validation
-      guard.run().catch(() => {}); // run() may fail for other reasons, that's fine
-      
-      // If validation passed, process.exit should NOT be called with 1
-      // But execFileSync may fail, so check console.error wasn't called with our message
-      expect(consoleErrorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Guard command rejected'));
-      
-      exitSpy.mockRestore();
-      consoleErrorSpy.mockRestore();
     });
   });
 
