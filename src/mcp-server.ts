@@ -244,6 +244,7 @@ export class MCPServer {
     window?: number;
     repos?: string;
     format?: string;
+    history?: HistoryEntry[];
   }): Promise<any> {
     const scanner = this.getScanner(dir);
     const history = this.loadHistory();
@@ -254,7 +255,7 @@ export class MCPServer {
         if (params?.repos) {
           return this.pulsetelMultiRepoCheck(params.repos, false, params.includeTrends);
         }
-        return this.pulsetelCheck(scanner, history, trendAnalyzer, params?.includeTrends);
+        return this.pulsetelCheck(scanner, history, trendAnalyzer, params?.includeTrends, params?.format === 'compact');
       case 'pulsetel_quick':
         if (params?.repos) {
           return this.pulsetelMultiRepoCheck(params.repos, true, false);
@@ -280,6 +281,8 @@ export class MCPServer {
         return this.pulsetelStatus();
       case 'pulsetel_recommend':
         return this.pulsetelRecommend(scanner, history, trendAnalyzer);
+      case 'pulsetel_verify':
+        return this.pulsetelVerify(scanner, params?.history || history, trendAnalyzer);
       case 'pulsetel_sentry':
         return this.pulsetelSentry(scanner);
       case 'pulsetel_multi_repo':
@@ -298,10 +301,25 @@ export class MCPServer {
     scanner: Scanner,
     history: HistoryEntry[],
     trendAnalyzer: TrendAnalyzer,
-    includeTrends?: boolean
+    includeTrends?: boolean,
+    compact?: boolean
   ): Promise<any> {
     const results = await scanner.runAllChecks();
-    const items = results.map(r => this.enrichResult(r));
+    
+    // Compact mode: minimal fields
+    const items = compact 
+      ? results.map(r => ({
+          type: r.type,
+          status: r.status,
+          severity: statusToSeverity(r.status),
+          message: r.message,
+          actionable: r.status === 'error' 
+            ? errorActionable(r)
+            : r.status === 'warning'
+              ? warningActionable(r)
+              : 'No action needed'
+        }))
+      : results.map(r => this.enrichResult(r));
 
     const response: any = {
       schema_version: "1.0.0",
@@ -312,7 +330,11 @@ export class MCPServer {
       summary: this.computeSummary(results)
     };
 
-    if (includeTrends && history.length > 0) {
+    if (compact) {
+      response.compact = true;
+    }
+
+    if (!compact && includeTrends && history.length > 0) {
       const checkTypes = new Set<string>();
       history.forEach(e => e.results.forEach(r => checkTypes.add(r.type)));
       results.forEach(r => checkTypes.add(r.type));
@@ -597,6 +619,96 @@ export class MCPServer {
       warnings: warnings,
       last_check: latestRun.timestamp,
     };
+  }
+
+  /**
+   * Verify — re-run checks and compare against previous run.
+   * Returns delta showing what improved, worsened, or stayed the same.
+   */
+  private async pulsetelVerify(
+    scanner: Scanner,
+    history: HistoryEntry[],
+    trendAnalyzer: TrendAnalyzer
+  ): Promise<any> {
+    const startTime = Date.now();
+    
+    // Run current checks
+    const currentResults = await scanner.runAllChecks();
+    const currentItems = currentResults.map(r => this.enrichResult(r));
+    
+    // Find previous run for comparison
+    const previousRun = history.length > 0 ? history[0] : null;
+    const previousResults = previousRun?.results || [];
+    
+    // Compute delta
+    const delta = this.computeDelta(currentResults, previousResults);
+    
+    return {
+      schema_version: "1.0.0",
+      schema_url: "https://github.com/siongyuen/pulsetel/blob/master/SCHEMA.md",
+      version: VERSION,
+      timestamp: new Date().toISOString(),
+      duration: Date.now() - startTime,
+      previous_check: previousRun?.timestamp || null,
+      current: {
+        results: currentItems,
+        summary: this.computeSummary(currentResults)
+      },
+      delta,
+      recommendations: delta.improved.length > 0 
+        ? `✅ ${delta.improved.length} check(s) improved` 
+        : delta.worsened.length > 0 
+          ? `⚠️ ${delta.worsened.length} check(s) worsened` 
+          : '✓ No change'
+    };
+  }
+
+  private computeDelta(current: CheckResult[], previous: CheckResult[]): any {
+    const improved: any[] = [];
+    const worsened: any[] = [];
+    const unchanged: any[] = [];
+    
+    for (const currentResult of current) {
+      const prevResult = previous.find(r => r.type === currentResult.type);
+      
+      if (!prevResult) {
+        // New check type not in previous run
+        unchanged.push({
+          type: currentResult.type,
+          status: currentResult.status,
+          message: 'New check — no previous data'
+        });
+        continue;
+      }
+      
+      const statusOrder = ['error', 'warning', 'success'];
+      const currentIdx = statusOrder.indexOf(currentResult.status);
+      const prevIdx = statusOrder.indexOf(prevResult.status);
+      
+      if (currentIdx > prevIdx) {
+        improved.push({
+          type: currentResult.type,
+          from: prevResult.status,
+          to: currentResult.status,
+          message: `${currentResult.type}: ${prevResult.status} → ${currentResult.status}`
+        });
+      } else if (currentIdx < prevIdx) {
+        worsened.push({
+          type: currentResult.type,
+          from: prevResult.status,
+          to: currentResult.status,
+          message: `${currentResult.type}: ${prevResult.status} → ${currentResult.status}`
+        });
+      } else {
+        unchanged.push({
+          type: currentResult.type,
+          status: currentResult.status,
+          message: 'No change'
+        });
+      }
+    }
+    
+    return { improved, worsened, unchanged };
   }
 
   // ── pulsetel_multi_repo: multi-repository checks ───

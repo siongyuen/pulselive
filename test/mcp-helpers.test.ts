@@ -28,14 +28,15 @@ describe('mcp-helpers', () => {
       expect(VALID_TOOLS).toContain('pulsetel_deps');
       expect(VALID_TOOLS).toContain('pulsetel_summary');
       expect(VALID_TOOLS).toContain('pulsetel_trends');
+      expect(VALID_TOOLS).toContain('pulsetel_verify');
       expect(VALID_TOOLS).toContain('pulsetel_anomalies');
       expect(VALID_TOOLS).toContain('pulsetel_metrics');
       expect(VALID_TOOLS).toContain('pulsetel_recommend');
       expect(VALID_TOOLS).toContain('pulsetel_status');
     });
 
-    it('has 12 tools total', () => {
-      expect(VALID_TOOLS).toHaveLength(12);
+    it('has 13 tools total', () => {
+      expect(VALID_TOOLS).toHaveLength(13);
     });
   });
 
@@ -90,7 +91,7 @@ describe('mcp-helpers', () => {
     });
 
     it('returns dir for all directory-based tools', () => {
-      const dirTools = ['pulsetel_check', 'pulsetel_quick', 'pulsetel_ci', 'pulsetel_health', 'pulsetel_deps', 'pulsetel_summary', 'pulsetel_recommend'];
+      const dirTools = ['pulsetel_check', 'pulsetel_quick', 'pulsetel_ci', 'pulsetel_health', 'pulsetel_deps', 'pulsetel_summary', 'pulsetel_recommend', 'pulsetel_verify'];
       dirTools.forEach(tool => {
         expect(getRequiredParamsForTool(tool)).toEqual(['dir']);
       });

@@ -18,7 +18,8 @@ const VALID_TOOLS = [
   'pulsetel_metrics',
   'pulsetel_recommend',
   'pulsetel_status',
-  'pulsetel_sentry'
+  'pulsetel_sentry',
+  'pulsetel_verify'
 ];
 
 export { VALID_TOOLS };
@@ -62,7 +63,8 @@ export function getRequiredParamsForTool(tool: string): string[] {
     'pulsetel_anomalies': [],
     'pulsetel_metrics': [],
     'pulsetel_status': [],
-    'pulsetel_sentry': []
+    'pulsetel_sentry': [],
+    'pulsetel_verify': ['dir']
   };
 
   return toolParams[tool] || [];
